@@ -1,0 +1,2092 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>LACZY — QNG-Baustoffsuche</title>
+<meta name="description" content="LACZY — QNG-Rechenwerte 2023 finden per Sprache oder Text. Eigene Materialien anlegen.">
+<meta name="theme-color" content="#f5f1e8">
+<meta property="og:title" content="LACZY">
+<meta property="og:description" content="LCA, aber entspannt. Sprich oder tippe — finde sofort den QNG-Code für jeden Baustoff.">
+<meta property="og:type" content="website">
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+<!-- iOS Standalone -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="LACZY">
+
+<!-- Fonts: warm display serif + clean body sans + characterful mono -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,300;1,9..144,400&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  /* Eco palette — warm paper + sage + terra */
+  --bg: #f5f1e8;
+  --surface: #fbf8f1;
+  --surface-2: #ede5d3;
+  --surface-3: #e3d9c2;
+
+  --border: rgba(60, 50, 30, 0.10);
+  --border-2: rgba(60, 50, 30, 0.18);
+
+  --text: #2a2f26;
+  --text-2: #6b7466;
+  --text-3: #a39e8e;
+
+  --sage: #7a9168;
+  --sage-deep: #5d7a4d;
+  --sage-glow: rgba(122, 145, 104, 0.14);
+  --sage-tint: rgba(122, 145, 104, 0.08);
+
+  --terra: #c47a52;
+  --terra-deep: #a86840;
+  --terra-glow: rgba(196, 122, 82, 0.14);
+  --terra-tint: rgba(196, 122, 82, 0.08);
+
+  --sun: #d9a566;
+  --sun-glow: rgba(217, 165, 102, 0.18);
+
+  --green-live: #7a9168;
+  --warn: #c47a52;
+
+  --font-display: 'Fraunces', 'Georgia', 'Iowan Old Style', serif;
+  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, monospace;
+
+  --shadow-soft: 0 1px 2px rgba(60, 50, 30, 0.04), 0 4px 16px rgba(60, 50, 30, 0.04);
+  --shadow-lift: 0 2px 4px rgba(60, 50, 30, 0.06), 0 12px 32px rgba(60, 50, 30, 0.08);
+  --shadow-deep: 0 4px 8px rgba(60, 50, 30, 0.08), 0 24px 64px rgba(60, 50, 30, 0.12);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* gentle organic background — paper texture via radial blobs */
+body::before{
+  content:'';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 90% -10%, rgba(122,145,104,0.06), transparent 60%),
+    radial-gradient(ellipse 70% 50% at -10% 90%, rgba(196,122,82,0.05), transparent 60%);
+  pointer-events: none; z-index: 0;
+}
+
+.app{
+  position: relative; z-index: 1;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+  padding-top: max(1.5rem, env(safe-area-inset-top));
+}
+
+/* ── App bar (status + install) ───────────────────────────────── */
+.app-bar{
+  display:flex; align-items:center; justify-content:space-between;
+  margin-bottom: 1.25rem; gap: 8px; flex-wrap: wrap;
+}
+.app-status{
+  display:inline-flex; align-items:center; gap:7px;
+  font-size: 11px; font-family: var(--font-mono);
+  color: var(--text-3); letter-spacing: .06em; text-transform: uppercase;
+}
+.app-status .status-dot{
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--sage); box-shadow: 0 0 0 4px var(--sage-tint);
+}
+.app-status.offline .status-dot{
+  background: var(--terra); box-shadow: 0 0 0 4px var(--terra-tint);
+}
+.app-status.offline span{color: var(--terra-deep)}
+
+.toolbar-actions{display:flex; align-items:center; gap:6px}
+.icon-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  width: 34px; height: 34px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; cursor: pointer;
+  color: var(--text-2); transition: all .15s ease;
+}
+.icon-btn:hover{ background: var(--surface-2); color: var(--text); border-color: var(--border-2) }
+.icon-btn svg{ width: 16px; height: 16px }
+
+.install-btn{
+  display:none; align-items:center; gap:7px;
+  background: var(--sage); border: none; color: #fff;
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+  padding: 8px 14px; border-radius: 100px; cursor: pointer;
+  letter-spacing: .01em; box-shadow: var(--shadow-soft);
+  transition: all .15s ease;
+}
+.install-btn:hover{ background: var(--sage-deep); transform: translateY(-1px); box-shadow: var(--shadow-lift) }
+.install-btn.show{display: inline-flex}
+.install-btn svg{width: 14px; height: 14px}
+
+/* ── Header / Brand ───────────────────────────────────────────── */
+.brand{ text-align: center; margin: 2rem 0 2.25rem }
+.brand-mark{
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-bottom: 1rem;
+}
+.brand-mark svg{ width: 36px; height: 44px }
+.brand h1{
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(44px, 9vw, 64px);
+  letter-spacing: -0.04em;
+  color: var(--text);
+  line-height: 1;
+  font-variation-settings: "opsz" 144, "SOFT" 50;
+}
+.brand h1 em{
+  font-style: italic;
+  font-weight: 300;
+  color: var(--sage-deep);
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+}
+.brand-tagline{
+  margin-top: 0.65rem;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-2);
+  letter-spacing: 0.02em;
+}
+.brand-tagline .sep{ margin: 0 0.5em; color: var(--text-3) }
+
+/* ── Order toggle ─────────────────────────────────────────────── */
+.order-toggle{
+  display: flex; gap: 4px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 4px;
+  margin-bottom: 1.25rem; box-shadow: var(--shadow-soft);
+}
+.order-tab{
+  flex: 1; padding: 11px 10px;
+  border-radius: 10px; border: none; background: transparent;
+  color: var(--text-2); cursor: pointer;
+  font-family: var(--font-body); font-size: 13px; font-weight: 500;
+  transition: all .15s ease;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.order-tab:hover{ color: var(--text); background: var(--surface-2) }
+.order-tab.active{
+  background: var(--sage); color: #fff;
+  box-shadow: 0 2px 8px rgba(122,145,104,0.3);
+}
+.order-tab.active.terra{
+  background: var(--terra);
+  box-shadow: 0 2px 8px rgba(196,122,82,0.3);
+}
+.order-tab .tab-label{font-weight: 600; font-size: 13px}
+.order-tab .tab-sub{
+  font-size: 10px; font-family: var(--font-mono);
+  opacity: .75; letter-spacing: .03em; text-transform: lowercase;
+}
+.order-tab.active .tab-sub{opacity: .9}
+
+/* ── Mic ──────────────────────────────────────────────────────── */
+.mic-section{ display:flex; flex-direction:column; align-items:center; gap:12px; margin: 0.5rem 0 1.5rem }
+.mic-ring{ position: relative; width: 92px; height: 92px; display: flex; align-items: center; justify-content: center }
+.mic-ring::before{
+  content:''; position: absolute; inset: 0; border-radius: 50%;
+  border: 1px solid var(--border-2);
+  transition: all .3s ease;
+}
+.mic-ring.listening::before{
+  border-color: var(--sage); border-width: 2px;
+  animation: ring-pulse 2s ease-in-out infinite;
+}
+@keyframes ring-pulse{
+  0%,100%{transform: scale(1); opacity: 1}
+  50%{transform: scale(1.15); opacity: .35}
+}
+.mic-btn{
+  width: 68px; height: 68px; border-radius: 50%;
+  border: 1px solid var(--border-2); background: var(--surface);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all .2s ease; position: relative; z-index: 1;
+  box-shadow: var(--shadow-soft);
+  color: var(--text-2);
+}
+.mic-btn:hover{
+  background: var(--surface-2); color: var(--sage-deep);
+  box-shadow: var(--shadow-lift);
+}
+.mic-btn.listening{
+  background: var(--sage); border-color: var(--sage);
+  color: #fff; box-shadow: 0 0 0 8px var(--sage-glow), var(--shadow-lift);
+}
+.mic-btn svg{width: 24px; height: 24px; transition: all .2s}
+.mic-btn .mic-icon{display: block} .mic-btn .stop-icon{display: none}
+.mic-btn.listening .mic-icon{display: none} .mic-btn.listening .stop-icon{display: block}
+
+.live-bar{
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 16px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 100px; font-size: 12px; color: var(--text-2);
+  min-height: 32px; opacity: 0; transform: translateY(-4px);
+  transition: opacity .2s, transform .2s;
+}
+.live-bar.active{opacity: 1; transform: translateY(0)}
+.live-dot{
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--sage); animation: live-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes live-pulse{
+  0%,100%{opacity: 1; transform: scale(1)}
+  50%{opacity: .4; transform: scale(.8)}
+}
+.live-text{
+  color: var(--text); font-family: var(--font-display);
+  font-style: italic; font-weight: 400;
+  max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.status-text{
+  font-size: 11px; font-family: var(--font-mono);
+  color: var(--text-3); letter-spacing: .04em; height: 14px;
+  text-align: center;
+}
+.status-text.active{color: var(--sage-deep)}
+
+/* ── Search ───────────────────────────────────────────────────── */
+.search-wrap{ position: relative; margin-bottom: 1.25rem }
+.search-icon{
+  position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+  color: var(--text-3); pointer-events: none;
+}
+.search-input{
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 44px 14px 44px;
+  font-size: 15px; font-family: var(--font-body);
+  color: var(--text);
+  outline: none; transition: all .2s;
+  -webkit-appearance: none;
+  box-shadow: var(--shadow-soft);
+}
+.search-input::placeholder{color: var(--text-3); font-style: italic}
+.search-input:focus{
+  border-color: var(--sage);
+  box-shadow: 0 0 0 4px var(--sage-tint), var(--shadow-soft);
+}
+.search-clear{
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  background: var(--surface-2); border: none; cursor: pointer;
+  color: var(--text-2); padding: 5px;
+  border-radius: 50%; display: none; line-height: 0;
+  width: 24px; height: 24px; align-items: center; justify-content: center;
+}
+.search-clear.show{display: inline-flex}
+.search-clear:hover{background: var(--surface-3); color: var(--text)}
+
+/* ── Stats + filter pills ─────────────────────────────────────── */
+.stats-bar{
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px; flex-wrap: wrap; gap: 10px;
+}
+.stats-count{
+  font-size: 12px; font-family: var(--font-mono);
+  color: var(--text-3); letter-spacing: .02em;
+}
+.stats-count strong{color: var(--sage-deep); font-weight: 500}
+.add-mat-btn{
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--terra-tint); border: 1px solid var(--terra);
+  color: var(--terra-deep);
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+  padding: 6px 12px; border-radius: 100px; cursor: pointer;
+  letter-spacing: .01em; transition: all .15s ease;
+}
+.add-mat-btn:hover{
+  background: var(--terra); color: #fff; transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+.add-mat-btn svg{width: 13px; height: 13px}
+
+.filter-pills{
+  display: flex; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.pill{
+  font-size: 11px; padding: 5px 12px;
+  border-radius: 100px;
+  border: 1px solid var(--border); color: var(--text-2);
+  cursor: pointer; background: transparent;
+  font-family: var(--font-body); font-weight: 500;
+  transition: all .15s; white-space: nowrap;
+}
+.pill:hover{border-color: var(--border-2); color: var(--text); background: var(--surface)}
+.pill.active{
+  border-color: var(--sage); color: #fff; background: var(--sage);
+  box-shadow: 0 1px 4px rgba(122,145,104,0.25);
+}
+
+/* ── Result cards ─────────────────────────────────────────────── */
+.results{ display: flex; flex-direction: column; gap: 6px }
+.result-card{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: grid; grid-template-columns: 64px 1fr auto;
+  align-items: center; gap: 12px;
+  transition: all .15s ease;
+  animation: fadeIn .2s ease;
+}
+@keyframes fadeIn{
+  from{opacity: 0; transform: translateY(4px)}
+  to{opacity: 1; transform: translateY(0)}
+}
+.result-card:hover{
+  border-color: var(--border-2);
+  background: var(--surface);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+.result-card.second-order{border-left: 3px solid var(--terra)}
+.result-card.user-custom{
+  border-left: 3px solid var(--sage);
+  background: linear-gradient(to right, var(--sage-tint) 0%, var(--surface) 60%);
+}
+
+.lca-num{
+  font-family: var(--font-mono); font-size: 13px; font-weight: 500;
+  padding: 6px 8px; border-radius: 7px;
+  text-align: center;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.result-name{
+  font-size: 14px; font-weight: 400;
+  color: var(--text); line-height: 1.45;
+}
+.result-name mark{
+  background: var(--sun-glow); color: var(--terra-deep);
+  border-radius: 3px; padding: 0 2px; font-weight: 500;
+}
+.result-meta{
+  font-size: 11px; color: var(--text-3); font-family: var(--font-mono);
+  margin-top: 3px; display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+}
+.linked-name{
+  font-size: 11px; color: var(--text-3); font-family: var(--font-body);
+  margin-top: 3px; font-style: italic;
+}
+.linked-name::before{content: "→ "; color: var(--terra); font-style: normal; font-weight: 600}
+.note-tag{ color: var(--terra-deep); font-style: italic }
+.custom-tag{
+  display: inline-flex; align-items: center; gap: 3px;
+  color: var(--sage-deep); background: var(--sage-tint);
+  padding: 1px 7px; border-radius: 100px;
+  font-size: 10px; font-weight: 500; letter-spacing: .02em;
+}
+.custom-tag::before{content: "✦"; font-size: 9px}
+
+.result-actions{ display: flex; gap: 4px; align-items: center }
+.copy-btn{
+  background: transparent;
+  border: 1px solid transparent; border-radius: 7px;
+  cursor: pointer; color: var(--text-2);
+  padding: 6px 9px; font-size: 11px; font-family: var(--font-mono);
+  transition: all .15s; white-space: nowrap;
+}
+.copy-btn:hover{
+  border-color: var(--border-2); color: var(--text);
+  background: var(--surface-2);
+}
+.copy-btn.copied{
+  color: var(--sage-deep); border-color: var(--sage);
+  background: var(--sage-tint);
+}
+.row-edit-btn{
+  background: transparent; border: 1px solid transparent;
+  border-radius: 7px; cursor: pointer; color: var(--text-3);
+  padding: 5px; transition: all .15s; line-height: 0;
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.row-edit-btn:hover{
+  border-color: var(--border-2); color: var(--sage-deep);
+  background: var(--sage-tint);
+}
+.row-edit-btn svg{ width: 14px; height: 14px }
+
+.empty{
+  text-align: center; padding: 3rem 1rem;
+  color: var(--text-3);
+  font-family: var(--font-display);
+  font-style: italic; font-size: 16px;
+}
+.empty .empty-cta{
+  margin-top: 1rem; display: inline-block;
+  font-family: var(--font-body); font-style: normal;
+  font-size: 13px; color: var(--terra-deep);
+  background: var(--terra-tint); border: 1px solid var(--terra);
+  padding: 7px 14px; border-radius: 100px;
+  cursor: pointer;
+}
+.empty .empty-cta:hover{background: var(--terra); color: #fff}
+
+.no-support{
+  background: var(--terra-tint);
+  border: 1px solid var(--terra);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 12px; color: var(--terra-deep);
+  margin-bottom: 1rem; display: none;
+}
+
+.source-note{
+  text-align: center; font-size: 11px;
+  color: var(--text-3); font-family: var(--font-mono);
+  margin-top: 2.5rem; padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  letter-spacing: .04em;
+}
+.source-note .heart{color: var(--sage); font-style: normal}
+
+/* ── Update banner ────────────────────────────────────────────── */
+.update-banner{
+  display: none;
+  background: var(--sage-tint);
+  border: 1px solid var(--sage);
+  border-radius: 12px; padding: 11px 14px; margin-bottom: 14px;
+  align-items: center; justify-content: space-between; gap: 10px;
+  font-size: 13px; color: var(--sage-deep);
+}
+.update-banner.show{display: flex}
+.update-banner button{
+  background: var(--sage); border: none; color: #fff;
+  padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+}
+.update-banner button:hover{background: var(--sage-deep)}
+
+/* ── iOS install hint ─────────────────────────────────────────── */
+.ios-hint{
+  display: none;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 13px 38px 13px 14px;
+  margin-bottom: 14px; font-size: 13px;
+  color: var(--text-2); line-height: 1.55; position: relative;
+}
+.ios-hint.show{display: block}
+.ios-hint strong{color: var(--text); font-weight: 500}
+.ios-hint .ios-close{
+  position: absolute; top: 8px; right: 8px;
+  background: none; border: none; color: var(--text-3);
+  cursor: pointer; font-size: 18px; padding: 4px 8px; line-height: 1;
+}
+.ios-hint .ios-close:hover{color: var(--text)}
+.ios-hint kbd{
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 2px 6px;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text); margin: 0 2px;
+}
+
+/* ── Modal (Add/Edit Material, Backup) ────────────────────────── */
+.modal{
+  position: fixed; inset: 0; z-index: 100;
+  display: none; align-items: center; justify-content: center;
+  padding: 1rem; padding-top: max(1rem, env(safe-area-inset-top));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.modal.open{display: flex}
+.modal-overlay{
+  position: absolute; inset: 0;
+  background: rgba(38, 32, 20, 0.45);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  animation: fade-in .2s ease;
+}
+@keyframes fade-in{from{opacity: 0} to{opacity: 1}}
+.modal-card{
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  width: 100%; max-width: 480px;
+  max-height: 90vh; overflow-y: auto;
+  box-shadow: var(--shadow-deep);
+  animation: lift-in .25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes lift-in{
+  from{opacity: 0; transform: translateY(20px) scale(.98)}
+  to{opacity: 1; transform: translateY(0) scale(1)}
+}
+.modal-header{
+  padding: 20px 22px 12px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.modal-header h2{
+  font-family: var(--font-display);
+  font-weight: 400; font-size: 24px;
+  letter-spacing: -0.02em; color: var(--text);
+  font-variation-settings: "opsz" 100;
+}
+.modal-close{
+  background: none; border: none; cursor: pointer;
+  color: var(--text-3); font-size: 24px; line-height: 1;
+  padding: 4px 8px; border-radius: 8px;
+}
+.modal-close:hover{color: var(--text); background: var(--surface-2)}
+.modal-body{ padding: 4px 22px 8px }
+.modal-body p.intro{
+  font-size: 13px; color: var(--text-2); line-height: 1.55;
+  margin-bottom: 1rem;
+}
+.field{ margin-bottom: 1rem }
+.field label{
+  display: block; font-size: 12px; font-weight: 500;
+  color: var(--text-2); margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+.field input, .field textarea, .field select{
+  width: 100%;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 11px 14px;
+  font-family: var(--font-body); font-size: 14px;
+  color: var(--text); outline: none;
+  transition: all .15s;
+  -webkit-appearance: none;
+}
+.field input:focus, .field textarea:focus, .field select:focus{
+  border-color: var(--sage);
+  box-shadow: 0 0 0 3px var(--sage-tint);
+  background: var(--surface);
+}
+.field input.invalid, .field textarea.invalid{
+  border-color: var(--terra);
+  box-shadow: 0 0 0 3px var(--terra-tint);
+}
+.field-hint{
+  font-size: 11px; color: var(--text-3); margin-top: 5px;
+  font-family: var(--font-mono);
+}
+.field-hint.match{ color: var(--sage-deep) }
+.field-hint.error{ color: var(--terra-deep) }
+.modal-footer{
+  padding: 12px 22px 20px;
+  display: flex; align-items: center; gap: 10px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+.modal-footer.with-delete{ justify-content: space-between }
+.btn{
+  font-family: var(--font-body); font-size: 13px; font-weight: 500;
+  padding: 10px 18px; border-radius: 10px;
+  cursor: pointer; transition: all .15s ease;
+  border: 1px solid transparent;
+  letter-spacing: 0.01em;
+}
+.btn-primary{ background: var(--sage); color: #fff }
+.btn-primary:hover{ background: var(--sage-deep); box-shadow: 0 2px 8px rgba(122,145,104,0.3) }
+.btn-text{
+  background: transparent; color: var(--text-2);
+  border: 1px solid var(--border);
+}
+.btn-text:hover{ background: var(--surface-2); color: var(--text); border-color: var(--border-2) }
+.btn-danger{
+  background: transparent; color: var(--terra-deep);
+  border: 1px solid var(--terra);
+}
+.btn-danger:hover{ background: var(--terra); color: #fff }
+.btn:disabled{ opacity: .5; cursor: not-allowed }
+.btn:disabled:hover{ transform: none; box-shadow: none }
+
+/* ── Backup-Modus inside the modal ───────────────────────────── */
+.backup-actions{
+  display: grid; gap: 10px; margin-bottom: 1rem;
+}
+.backup-row{
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+  gap: 10px;
+}
+.backup-row .row-text{ flex: 1; min-width: 0 }
+.backup-row .row-text strong{
+  display: block; font-size: 13px; color: var(--text);
+  font-weight: 500; margin-bottom: 2px;
+}
+.backup-row .row-text span{ font-size: 11px; color: var(--text-3); line-height: 1.4 }
+.backup-row .btn{ flex-shrink: 0; padding: 8px 12px; font-size: 12px }
+
+/* ── Toast ────────────────────────────────────────────────────── */
+.toast{
+  position: fixed; left: 50%; bottom: 24px;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--text); color: var(--surface);
+  font-family: var(--font-body); font-size: 13px; font-weight: 500;
+  padding: 11px 18px; border-radius: 100px;
+  box-shadow: var(--shadow-deep);
+  opacity: 0; pointer-events: none;
+  transition: all .25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 200;
+  max-width: 90%;
+}
+.toast.show{
+  opacity: 1; transform: translateX(-50%) translateY(0);
+}
+.toast.sage{ background: var(--sage-deep) }
+.toast.terra{ background: var(--terra-deep) }
+
+/* ── Scrollbar ────────────────────────────────────────────────── */
+::-webkit-scrollbar{width: 8px; height: 8px}
+::-webkit-scrollbar-track{background: transparent}
+::-webkit-scrollbar-thumb{background: var(--border-2); border-radius: 4px}
+::-webkit-scrollbar-thumb:hover{background: var(--text-3)}
+
+/* ── Responsive ───────────────────────────────────────────────── */
+@media (max-width: 480px){
+  .app{padding: 1rem 1rem 4rem}
+  .result-card{ grid-template-columns: 60px 1fr auto; gap: 10px; padding: 11px 12px }
+  .copy-btn{display: none}
+  .order-tab .tab-sub{display: none}
+  .filter-pills{justify-content: flex-start}
+  .brand h1{font-size: 48px}
+  .modal-card{ border-radius: 14px }
+  .modal-header h2{ font-size: 20px }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- App bar -->
+  <div class="app-bar">
+    <div class="app-status" id="appStatus" title="Verbindungsstatus">
+      <span class="status-dot"></span>
+      <span id="appStatusText">Online</span>
+    </div>
+    <div class="toolbar-actions">
+      <button class="icon-btn" id="backupBtn" type="button" title="Backup / Wiederherstellen" aria-label="Backup">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+      </button>
+      <button class="install-btn" id="installBtn" type="button" aria-label="App installieren">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>Installieren</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- iOS hint -->
+  <div class="ios-hint" id="iosHint">
+    <button class="ios-close" id="iosClose" aria-label="Schließen">×</button>
+    <strong>📱 Auf dem Homescreen installieren:</strong><br>
+    Tippe unten auf <kbd>Teilen</kbd> ⬆ und dann auf <kbd>Zum Home-Bildschirm</kbd>.
+  </div>
+
+  <!-- Update banner -->
+  <div class="update-banner" id="updateBanner">
+    <span>Eine neue Version ist verfügbar.</span>
+    <button id="updateBtn" type="button">Aktualisieren</button>
+  </div>
+
+  <!-- Brand -->
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <!-- Inline leaf logo -->
+      <svg viewBox="0 0 36 44" xmlns="http://www.w3.org/2000/svg">
+        <g transform="rotate(-12 18 22)">
+          <path d="M18 4 C 26 11, 27 28, 18 40 C 9 28, 10 11, 18 4 Z" fill="#7a9168"/>
+          <line x1="18" y1="6" x2="18" y2="38" stroke="#5d7a4d" stroke-width="1.4" stroke-linecap="round"/>
+        </g>
+      </svg>
+    </div>
+    <h1>L<em>a</em>czy</h1>
+    <div class="brand-tagline">
+      <span>QNG-Baustoffsuche</span>
+      <span class="sep">·</span>
+      <span>Sprich oder tippe</span>
+    </div>
+  </div>
+
+  <!-- Order toggle -->
+  <div class="order-toggle" role="tablist">
+    <button class="order-tab active" data-order="1" id="tab1">
+      <span class="tab-label">Standard</span>
+      <span class="tab-sub">QNG · 388</span>
+    </button>
+    <button class="order-tab" data-order="2" id="tab2">
+      <span class="tab-label">Eigene</span>
+      <span class="tab-sub">+ Hersteller · <span id="customCount">0</span></span>
+    </button>
+    <button class="order-tab" data-order="all" id="tabAll">
+      <span class="tab-label">Alles</span>
+      <span class="tab-sub">kombiniert</span>
+    </button>
+  </div>
+
+  <div id="noSupport" class="no-support">
+    Spracherkennung nicht verfügbar. Bitte Chrome, Edge oder Safari verwenden — Texteingabe funktioniert überall.
+  </div>
+
+  <!-- Mic -->
+  <div class="mic-section">
+    <div class="mic-ring" id="micRing">
+      <button class="mic-btn" id="micBtn" aria-label="Mikrofon">
+        <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+        <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+      </button>
+    </div>
+    <div class="live-bar" id="liveBar">
+      <span class="live-dot"></span>
+      <span class="live-text" id="liveText">Bereit</span>
+    </div>
+    <div class="status-text" id="statusText">Mikrofon drücken um Dauerhören zu starten</div>
+  </div>
+
+  <!-- Search -->
+  <div class="search-wrap">
+    <span class="search-icon">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    </span>
+    <input type="text" class="search-input" id="searchInput" placeholder='Suche: „Holz", „Beton", „Fenster", „5.45" …' autocomplete="off" spellcheck="false">
+    <button class="search-clear" id="clearBtn" aria-label="Löschen">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+
+  <div class="stats-bar">
+    <div class="stats-count" id="statsCount"></div>
+    <button class="add-mat-btn" id="addMatBtn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <span>Eigenes Material</span>
+    </button>
+  </div>
+
+  <div class="filter-pills" id="filterPills"></div>
+  <div class="results" id="results"></div>
+
+  <div class="source-note">
+    Quelle: QNG-Rechenwerte 2023 v1.3 · BBSR / Ökobaudat
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────────
+     MODALS
+     ───────────────────────────────────────────────────────────── -->
+
+<div class="modal" id="matModal" aria-hidden="true" role="dialog">
+  <div class="modal-overlay" data-close></div>
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 id="matModalTitle">Eigenes Material</h2>
+      <button class="modal-close" data-close aria-label="Schließen">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="intro">Lege ein eigenes Material an und ordne es einem QNG-Code zu. Es erscheint dann in <strong>Eigene</strong>.</p>
+
+      <div class="field">
+        <label for="newName">Material-Bezeichnung</label>
+        <input type="text" id="newName" placeholder="z.B. „Schöck Isokorb XT"" maxlength="120" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label for="newCode">QNG-Code (zugeordneter Standard-Eintrag)</label>
+        <input type="text" id="newCode" placeholder="z.B. 5.45" autocomplete="off" list="codeList">
+        <datalist id="codeList"></datalist>
+        <div class="field-hint" id="newCodeHint">Tippe Nummer oder Name. Auto-Vervollständigung.</div>
+      </div>
+
+      <div class="field">
+        <label for="newNote">Notiz (optional)</label>
+        <input type="text" id="newNote" placeholder="z.B. „Alternative bei Wärmebrücken"" maxlength="200" autocomplete="off">
+      </div>
+    </div>
+    <div class="modal-footer with-delete" id="matModalFooter">
+      <button class="btn btn-danger" id="deleteBtn" type="button" style="display:none">Löschen</button>
+      <div style="display:flex; gap:10px; margin-left:auto">
+        <button class="btn btn-text" data-close type="button">Abbrechen</button>
+        <button class="btn btn-primary" id="saveBtn" type="button">Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="backupModal" aria-hidden="true" role="dialog">
+  <div class="modal-overlay" data-close></div>
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Backup deiner Materialien</h2>
+      <button class="modal-close" data-close aria-label="Schließen">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="intro">Deine eigenen Materialien werden lokal in deinem Browser gespeichert. Damit nichts verloren geht: regelmäßig exportieren — und auf einem neuen Gerät einfach importieren.</p>
+
+      <div class="backup-actions">
+        <div class="backup-row">
+          <div class="row-text">
+            <strong>Exportieren</strong>
+            <span><span id="backupCount">0</span> eigene Materialien als JSON-Datei sichern</span>
+          </div>
+          <button class="btn btn-primary" id="exportBtn" type="button">Download</button>
+        </div>
+        <div class="backup-row">
+          <div class="row-text">
+            <strong>Importieren</strong>
+            <span>JSON-Datei einlesen. Achtung — bestehende Liste wird ersetzt.</span>
+          </div>
+          <button class="btn btn-text" id="importBtn" type="button">Datei wählen</button>
+          <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+        </div>
+        <div class="backup-row">
+          <div class="row-text">
+            <strong>Alle eigenen löschen</strong>
+            <span>Setzt deine Materialliste auf leer zurück.</span>
+          </div>
+          <button class="btn btn-danger" id="wipeBtn" type="button">Löschen</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-text" data-close type="button">Schließen</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+// FIRST ORDER — QNG-Rechenwerte 2023 v1.3 (388 entries, 10 categories)
+// SECOND ORDER — Hersteller-Standardliste
+// ════════════════════════════════════════════════════════════════════════════
+const CATEGORIES = {
+  "1":"Mineralische Materialien, Bauprodukte, Bauteile",
+  "2":"Metalle",
+  "3":"Holz und Holzwerkstoffe",
+  "4":"Abdichtungen, Schutzschichten, Dachdeckungen",
+  "5":"Dämmstoffe",
+  "6":"Bodenbelag",
+  "7":"Ausbau – Außen/Innen",
+  "8":"Beschichtungen",
+  "9":"Transluzente Bauteile, Fenster, Türen, Tore",
+  "10":"Haustechnik Großkomponenten"
+};
+const CAT_SHORT = {"1":"Mineralisch","2":"Metalle","3":"Holz","4":"Abdichtung","5":"Dämmung","6":"Boden","7":"Ausbau","8":"Beschichtung","9":"Fenster/Türen","10":"Haustechnik"};
+
+const FIRST_ORDER = [
+  ["1.1","Kies 2/32"],
+  ["1.2","Kies 2/32 getrocknet"],
+  ["1.3","Sand 0/2"],
+  ["1.4","Sand 0/2 getrocknet"],
+  ["1.5","Brechsand 0/2"],
+  ["1.6","Brechsand 0/2 (getrocknet)"],
+  ["1.7","Schotter 16/32"],
+  ["1.8","Schotter 16/32 (getrocknet)"],
+  ["1.9","Splitt 2/15"],
+  ["1.10","Splitt 2/15 (getrocknet)"],
+  ["1.11","Lehmpulver"],
+  ["1.12","Lehmstein"],
+  ["1.13","Stampflehmwand"],
+  ["1.14","Mauerziegel"],
+  ["1.15","Mauerziegel (Dämmstoff gefüllt)"],
+  ["1.16","Vormauerziegel"],
+  ["1.17","Fassadenklinker"],
+  ["1.18","Kalksandstein t"],
+  ["1.19","Kalksandstein Mix m³"],
+  ["1.20","Porenbeton 380 kg, unbewehrt"],
+  ["1.21","Porenbeton 500 kg, bewehrt"],
+  ["1.22","Porenbeton 472 kg,5 unbewehrt"],
+  ["1.23","Blähton Hohlblockstein Trennwand"],
+  ["1.24","Blähton Planstein Außenwand"],
+  ["1.25","Blähton Planstein Innenwand"],
+  ["1.26","Hüttensteine"],
+  ["1.27","Beton-Mauersteine"],
+  ["1.28","Leichtbetonstein 100 % Naturbims"],
+  ["1.29","Transportbeton C20/25"],
+  ["1.30","Transportbeton C30/37"],
+  ["1.31","Betonfertigteil Decke 20cm"],
+  ["1.32","Betonfertigteil Decke 40cm"],
+  ["1.33","Betonfertigteil Treppe (1,1 m Breite, 9 Stufen a 16 cm)"],
+  ["1.34","Betonfertigteil Wand 12cm"],
+  ["1.35","Betonfertigteil Wand 40cm"],
+  ["1.36","Spannbeton-Fertigteildecken"],
+  ["1.37","Bewehrter Porenbeton - Decke"],
+  ["2.1","Grauguss Bauteil"],
+  ["2.2","Stahl Schmiedebauteil"],
+  ["2.3","Rohe Baustähle: Offene Walzprofile und Grobbleche"],
+  ["2.4","Feuerverzinkte Baustähle: Offene Walzprofile und Grobbleche"],
+  ["2.5","Stahlprofil"],
+  ["2.6","Bewehrungsstahl"],
+  ["2.7","Feuerverzinktes Stahlblech"],
+  ["2.8","Stahl Feinblech (0,3-3,0mm)"],
+  ["2.9","Stahl Feinblech bandverzinkt (2,0 mm)"],
+  ["2.10","Stahl warmgewalzte Bleche (2-20mm)"],
+  ["2.11","Zinkblech"],
+  ["2.12","Edelstahlblech"],
+  ["2.13","Gussteile aus Aluminium"],
+  ["2.14","Aluminiumblech"],
+  ["2.15","Aluminium Profil"],
+  ["2.16","Aluminiumfolie (d=0,1 mm)"],
+  ["3.1","Hobelware (Durchschnitt DE)"],
+  ["3.2","Laubschnittholz - getrocknet (Durchschnitt DE)"],
+  ["3.3","Nadelschnittholz - frisch (Durchschnitt DE)"],
+  ["3.4.","Nadelschnittholz - getrocknet (Durchschnitt DE)"],
+  ["3.5","Konstruktionsvollholz (Durchschnitt DE)"],
+  ["3.6","Balkenschichtholz (Durchschnitt DE)"],
+  ["3.7","Brettschichtholz - Standardformen (Durchschnitt DE)"],
+  ["3.8","Brettsperrholz (Durchschnitt DE)"],
+  ["3.9","3- und 5-Schicht Massivholzplatte (Durchschnitt DE)"],
+  ["3.10","Furniersperrholz (Durchschnitt DE)"],
+  ["3.11","Furnierschichtholz"],
+  ["3.12","Oriented Strand Board-OSB (Durchschnitt DE)"],
+  ["3.13","Röhrenspanplatte (Durchschnitt DE)"],
+  ["3.14","Spanplatte - melaminbeschichtet (Durchschnitt DE)"],
+  ["3.15","Spanplatte, roh (Durchschnitt DE)"],
+  ["3.16","Zementgebundene Spanplatte"],
+  ["3.17","Hochdichte Faserplatte (Durchschnitt DE)"],
+  ["3.18","Mitteldichte Faserplatte (Durchschnitt DE)"],
+  ["4.1","Schiefer (Dicke 0,011 m)"],
+  ["4.2","Dachziegel"],
+  ["4.3","Dachsteine"],
+  ["4.4","Bitumenbahnen G 200 S4 (Dicke 4 mm)"],
+  ["4.5","Bitumenbahnen PYE PV 200 S5 (ungeschiefert) (Dicke 4 mm)"],
+  ["4.6","Bitumenbahnen PYE-PV 200 S5 ns (geschiefert) (Dicke 4 mm)"],
+  ["4.7","Bitumenbahnen V 60 (Dicke 5 mm)"],
+  ["4.8","PVC-Dachbahnen (Dicke 1,2 mm)"],
+  ["4.9","Dachbahnen EPDM (Dicke1,5 mm)"],
+  ["4.10","TPO/FPO Dach-und Dichtungsbahn"],
+  ["4.11","EVA-Dachbahnen"],
+  ["4.12","ECB Kunststoff-Dachbahn (mit PES Vlies)"],
+  ["4.13","Polyisobutylen-Dachbahn (Dicke 1,5 mm)"],
+  ["4.14","Polyisobutylen-Dachbahn glasfaserverstärkt (Dicke 1,5 mm)"],
+  ["4.15","Folie für Gründach (Dicke 1 mm)"],
+  ["4.16","Unterspannbahn PE gewebeverstärkt (Dicke 0,15 mm)"],
+  ["4.17","Unterspannbahn PP (Dicke 0,15 mm)"],
+  ["4.18","Unterspannbahn PUR auf PET-Vlies (Dicke 0,5 mm)"],
+  ["4.19","Dampfbremse PA"],
+  ["4.20","Dampfbremse PE (Dicke 0,2 mm)"],
+  ["4.21","Dampfbremse PET gitterverstärkt (Dicke 0,1 mm)"],
+  ["4.22","Folie PE-HD mit PP-Vlies zur Abdichtung"],
+  ["4.23","PE-Noppenfolie zur Abdichtung (Dicke 1,25 mm)"],
+  ["4.24","PE/PP Vlies"],
+  ["4.25","Bitumen Emulsion (40% Bitumen, 60% Wasser)"],
+  ["4.26","Gussasphalt"],
+  ["4.27","Baudichtstoffe auf Silikonbasis - Dichtstoffe für Verglasungen"],
+  ["4.28","Baudichtstoffe auf Silikonbasis - Fassadendichtstoffe"],
+  ["4.29","Baudichtstoffe auf Silikonbasis - Sanitärdichtstoffe"],
+  ["4.30","Silikon-Dichtmasse"],
+  ["4.31","Flüssigkunststoffe zur Bauwerksabdichtung auf Polyurethan- oder SMP"],
+  ["4.32","PUR-Dichtmasse"],
+  ["4.33","Kautschuk-Dichtmasse"],
+  ["4.34","Kautschukabdichtung"],
+  ["4.35","PVC Plastisol"],
+  ["4.36","Acrylat Dichtmasse"],
+  ["4.37","Baudichtstoffe auf Polysulfidbasis - Dichtstoffe für befahrene Flächen"],
+  ["4.38","Baudichtstoffe auf Polysulfidbasis - Fugenabdichtungssysteme"],
+  ["4.39","Kleb- und Dichtstoffe, Epoxidharz, gefüllt"],
+  ["4.40","Kleb- und Dichtstoffe Polyurethan lösemittelfrei"],
+  ["4.41","Glasvlies"],
+  ["4.42","Vegetationssubtrat"],
+  ["5.1.","Lava Körnung"],
+  ["5.2","Naturbims Körnung"],
+  ["5.3","Blähton Körnung"],
+  ["5.4","Blähschiefer"],
+  ["5.5","Blähglas Körnung"],
+  ["5.6","Perlite 0-1"],
+  ["5.7","Perlite 0-3"],
+  ["5.8","Porenbeton Granulat"],
+  ["5.9","Schaumglas 165 kg"],
+  ["5.10","Schaumglas 130 kg"],
+  ["5.11","Schaumglas 115 kg"],
+  ["5.12","Schaumglas 100 kg"],
+  ["5.13","Calziumsilikatplatte"],
+  ["5.14","Mineraldämmplatte"],
+  ["5.15","Perliteplatte innen"],
+  ["5.16","Vakuumisolationspaneele"],
+  ["5.17","Glasarmierungsgitter"],
+  ["5.18","Einblasdämmung Mineralwolle"],
+  ["5.19","Mineralwolle (Boden-Dämmung)"],
+  ["5.20","Mineralwolle (Fassaden-Dämmung)"],
+  ["5.21","Mineralwolle (Flachdach-Dämmung)"],
+  ["5.22","Mineralwolle (Innenausbau-Dämmung)"],
+  ["5.23","Mineralwolle (Schrägdach-Dämmung)"],
+  ["5.24","Steinwolle-Dämmstoff im hohen Rohdichtebereich"],
+  ["5.25","Steinwolle-Dämmstoff im mittleren Rohdichtebereich"],
+  ["5.26","Steinwolle-Dämmstoff im niedrigen Rohdichtebereich"],
+  ["5.27","Mineralfaser Deckenplatten (Dicke 1,5 cm)"],
+  ["5.28","Holzwolle-Leichtbauplatte"],
+  ["5.29","Expandierter Kork"],
+  ["5.30","Baustroh"],
+  ["5.31","Holzfaserdämmplatte (Nassverfahren)"],
+  ["5.32","Holzfaserdämmplatten"],
+  ["5.33","Holzfaserdämmstoff Trockenverfahren (Durchschnitt DE)"],
+  ["5.34","Hobelspandämmung"],
+  ["5.35","Zellulosefaser Einblas-Dämmstoff"],
+  ["5.36","Zellulosefaserplatten"],
+  ["5.37","Flachsvlies"],
+  ["5.38","Hanfvlies"],
+  ["5.39","Baumwolle konventionell"],
+  ["5.40","Baumwolle ökologisch"],
+  ["5.41","Harnstoff-Formaldehydharz Ortschaum"],
+  ["5.42","Melaminharz-Schaum"],
+  ["5.43","Polyethylen-Schaum"],
+  ["5.44","EPS-Hartschaum für Decken/Böden und als Perimeterdämmung B/P WLG 035"],
+  ["5.45","EPS-Hartschaum für Decken/Böden und als Perimeterdämmung B/PWLG 040"],
+  ["5.46","EPS-Hartschaum für Wände und Dächer W/D WLG 035"],
+  ["5.47","EPS-Hartschaum für Wände und Dächer W/D WLG 040"],
+  ["5.48","Schüttung aus Polystyropartikel (ohne Bindemittel)"],
+  ["5.49","Schüttung aus Polystyrolpartikeln (zementgebunden)"],
+  ["5.50","EPS-Hartschaum (grau) mit Wärmestrahlungsabsorber"],
+  ["5.51","XPS-Dämmstoff"],
+  ["5.52","PU-Dämmplatten mit Aluminium-Deckschicht"],
+  ["5.53","PU-Dämmplatten mit Mineralvlies-Deckschicht"],
+  ["5.54","PU-Dämmplatten aus Blockschaumstoff"],
+  ["5.55","PIR Hartschaum"],
+  ["5.56","Isolierkorb für Wärmebrückentrennung"],
+  ["6.1","Kraftpapier"],
+  ["6.2","Calciumsulfatestrich"],
+  ["6.3","Kunstharzestrich"],
+  ["6.4","Zementestrich"],
+  ["6.5","Calciumsulfat-Fließestrich, konventioneller Calciumsulfatestrich"],
+  ["6.6","Gussasphaltestrich"],
+  ["6.7","Epoxidharzmörtel"],
+  ["6.8","Epoxidharzgrundierung"],
+  ["6.9","Trockenschüttung Holzspäne"],
+  ["6.10","Trockenestrich (Gipsfaserplatte) (Dicke 2,5 cm)"],
+  ["6.11","Trockenestrich (Gipskartonplatte) (Dicke 2,5 cm)"],
+  ["6.12","Betonpflaster- Standardstein grau mit Vorsatz"],
+  ["6.13","Natursteinplatte, hart, Innenboden (Dicke 2,0 cm)"],
+  ["6.14","Natursteinplatte, weich, Innenboden (Dicke 2,0 cm)"],
+  ["6.15","Marmorplatte (Dicke 2,0 cm)"],
+  ["6.16","Fliesenkleber"],
+  ["6.17","Keramische Fliesen und Platten"],
+  ["6.18","Steinzeugfliesen glasiert (Dicke 1,0 cm)"],
+  ["6.19","Steinzeugfliesen unglasiert"],
+  ["6.20","Dispersionsbasierte Klebstoffe (div. Bodenbeläge)"],
+  ["6.21","Massivholzparkett (Durchschnitt DE)"],
+  ["6.22","Mehrschichtparkett (Durchschnitt DE)"],
+  ["6.23","Korkplatten 1m² (Dicke 4 mm)"],
+  ["6.24","Korkplatten 1m² (Dicke 8 mm)"],
+  ["6.25","Korkplatten 1m² (Dicke 6 mm)"],
+  ["6.26","Holzboden-Spachtelmasse"],
+  ["6.27","Korklinoleum Fußbodenbelag (Dicke 2,5 mm)"],
+  ["6.28","Linoleum (Dicke 2,5mm)"],
+  ["6.29","WPC (Wood Plastic Composite) Terrassendielen"],
+  ["6.30","Laminat-Fußbodenbeläge"],
+  ["6.31","Splittmastixasphalt SMA"],
+  ["6.32","Asphaltbinder"],
+  ["6.33","Asphalttragschicht"],
+  ["6.34","Tragdeckschicht"],
+  ["6.35","Kunststeinplatte (Epoxidharz gebunden)"],
+  ["6.36","PVC Fußbodenbelag"],
+  ["6.37.","Gummi-Bodenbelag mit Schaumstoffbeschichtung"],
+  ["6.38","Gummi-Bodenbelag profiliert (Dicke3,5 mm)"],
+  ["6.39","Fußbodenbelag mehrschichtiges Nadelvlies (Dicke 6,0 mm)"],
+  ["6.42","Getuftete Teppichfliesen LC3, PA 6, Schwerbeschichtung auf Bitumenbasis"],
+  ["6.45","Textiler Bodenbelag (GK 22+/23, LC1)"],
+  ["7.1","Natursteinplatte, hart, Außenbereich (Dicke 8,0 cm)"],
+  ["7.2","Natursteinplatte, hart, Fassade (Dicke 3,0 cm)"],
+  ["7.3","Natursteinplatte, weich, Fassade"],
+  ["7.4","Faserzementplatte"],
+  ["7.5","Harz-Komposit-Fassaden-Platte"],
+  ["7.6","Lehmputz"],
+  ["7.7","Kalkzement Putzmörtel"],
+  ["7.8","Kalkzementmörtel"],
+  ["7.9","Zementmörtel"],
+  ["7.10","Kalk-Gips-Innenputz"],
+  ["7.11","Kalk-Innenputz"],
+  ["7.12","Gipsputz"],
+  ["7.13","Gipsputz (Gips-Kalk-Putz)"],
+  ["7.14.","Kunstharzputz"],
+  ["7.15","WDVS EPS 160 mm mit Schienenbefestigung"],
+  ["7.16","WDVS Verklebung und Beschichtung Dekorputz mineralisch (ohne Dämmmaterial)"],
+  ["7.17","WDVS Verklebung und Beschichtung Kratzputz mineralisch (ohne Dämmmaterial)"],
+  ["7.18","WDVS Verklebung und Beschichtung Kunstharzputz (ohne Dämmmaterial)"],
+  ["7.19","WDVS Verklebung und Beschichtung Leichtputz mineralisch (ohne Dämmmaterial)"],
+  ["7.20","WDVS Verklebung und Beschichtung Silikat-Dispersionsputz (ohne Dämmmaterial)"],
+  ["7.21","WDVS Verklebung und Beschichtung Silikonharzputz (ohne Dämmmaterial)"],
+  ["7.22","Lehmbauplatte (Dicke 2,0 cm)"],
+  ["7.23","Gipsfaserplatte (Dicke 1,0 cm)"],
+  ["7.24","Gipskartonplatte (Feuerschutz)(Dicke 1,25 cm)"],
+  ["7.25","Gipskartonplatte (imprägniert) (Dicke 1,25 cm)"],
+  ["7.26","Gipskartonplatte (Lochplatte)"],
+  ["7.27","Gipswandbauplatte (Dicke 10,0 cm)"],
+  ["7.28","Kleber für Gipsplatten"],
+  ["8.1","Kalkfarbe"],
+  ["8.2","Fassadenfarbe Voranstrich Dispersion"],
+  ["8.3","Fassadenfarbe Voranstrich Silikat-Dispersion"],
+  ["8.4","Fassadenfarbe Dispersionsfarbe"],
+  ["8.5","Fassadenfarbe Silikat-Dispersionsfarbe"],
+  ["8.6","Fassadenfarbe Silikonharzfarbe"],
+  ["8.7","Dispersionsputz"],
+  ["8.8","Voranstrich, innen"],
+  ["8.9","Voranstrich, innen (Kunstharz)"],
+  ["8.10","Voranstrich, innen (Silikat-Dispersion)"],
+  ["8.11","Armierung (Kunstharzspachtel)"],
+  ["8.12","Latexfarbe"],
+  ["8.13","Innenfarbe Dispersionsfarbe scheuerfest"],
+  ["8.14","Lacksysteme Holzfenster Decklack weiß"],
+  ["8.15","Lacksysteme Holzfenster Grundierung weiß"],
+  ["8.16","Lacksysteme Holzfassade halb-pigmentiert (Lasursystem)"],
+  ["8.17","Parkettlack (Grundierung Holz, wasserverdünnt)"],
+  ["8.18","Parkettlack transparent"],
+  ["8.19","Lösemittellack weiß"],
+  ["8.20","Pulverlackierung (Industrie, Außenbereich, weiß)"],
+  ["8.21","Wasserlack weiß"],
+  ["8.22","Polyurethanversiegelung"],
+  ["8.23","PU-Voranstrich"],
+  ["8.24","Methacrylatharze"],
+  ["8.25","Metallbeschichtung (wasserbasiert)"],
+  ["8.26","Metalllack (lösemittelbasiert)"],
+  ["8.27","Pulverbeschichten von Metallen"],
+  ["9.1","Glasbausteine"],
+  ["9.2","Fensterglas einfach"],
+  ["9.3","Isolierglas 2-Scheiben"],
+  ["9.4","Dreifachverglasung (Dicke: 3,6 cm)"],
+  ["9.5","Abstandhalter Low Psi"],
+  ["9.6","Glas - Brandschutzglas"],
+  ["9.7","Bauprofil-Gussglas"],
+  ["9.8","Polycarbonatplatte"],
+  ["9.9","Transparente Platten PC"],
+  ["9.10","Transparente Platten PMMA, extrudiert"],
+  ["9.11","Transparente Platten PMMA, gegossen"],
+  ["9.12","Transparente Platten PVC"],
+  ["9.13","Aluminium-Flügelrahmenprofil, pulverbeschichtet"],
+  ["9.14","Aluminium-Rahmenprofil, pulverbeschichtet"],
+  ["9.15","Aluminium-Flügelrahmenprofil, thermisch getrennt, pulverbeschichtet"],
+  ["9.16","Aluminium-Rahmenprofil, thermisch getrennt, pulverbeschichtet"],
+  ["9.17","Pfosten/Riegelsystem aus Aluminium"],
+  ["9.18","Pfosten/Riegelsystem aus Stahl"],
+  ["9.19","Holz-Blendrahmen"],
+  ["9.20","Holz-Flügelrahmen"],
+  ["9.21","Blendrahmen PVC-U"],
+  ["9.22","Flügelrahmen PVC-U"],
+  ["9.23","CR Profil (Chloropren-Kautschuk)"],
+  ["9.24","EPDM-Dichtungen Aluminiumprofil, thermisch getrennt"],
+  ["9.25","Fugendichtungsbänder Butyl"],
+  ["9.26","Fugendichtungsbänder Gewebebänder"],
+  ["9.27","Fugendichtungsbänder PE/PP-Folie"],
+  ["9.28","Fugendichtungsbänder Polyisobutylen"],
+  ["9.29","Elastomer Fugenbänder, Polysulfid"],
+  ["9.30","Elastomer Fugenbänder, Polyurethan"],
+  ["9.31","Elastomer Fugenbänder, Silikonkautschuk"],
+  ["9.32","Beschlagverbund Fenster Stahl"],
+  ["9.33","Fenster-Beschlag für Doppelflügelfenster"],
+  ["9.34","Fenster-Beschlag für Drehkippfenster (Aluminium)"],
+  ["9.35","Fenster-Beschlag für horizontales Schiebefenster"],
+  ["9.36","Fenster-Beschlag für vertikales Schiebefenster"],
+  ["9.37","Befestigungsmittel/Schrauben Edelstahl"],
+  ["9.38","Befestigungsmittel/Schrauben verzinkt"],
+  ["9.39","Fenstergriff"],
+  ["9.40","Kunststoffprofil CR (Chloropren-Kautschuk)"],
+  ["9.41","Kunststoffprofil EPDM"],
+  ["9.42","Kunststoffprofil SBR"],
+  ["9.43","Kunststoffprofil Silikon"],
+  ["9.44","Sonnenschutztuch"],
+  ["9.45","Rollladen Kunststoff"],
+  ["9.46","Sonnenschutzlamellen Metall"],
+  ["9.47","Türplatte mit Kartonwabe beschichtet"],
+  ["9.48","Garagensektionaltor"],
+  ["9.49","Rolltor"],
+  ["10.1","Gas-Brennwertgerät < 20 kW (Wandgerät)"],
+  ["10.2","Gas-Brennwertgerät 120-400 kW (Standgerät)"],
+  ["10.3","Gas-Brennwertgerät 20-120 kW (Standgerät)"],
+  ["10.4","Gas-Niedertemperaturgerät 20-120 kW (Standgerät)"],
+  ["10.5","Hackschnitzelkessel < 20 kW"],
+  ["10.6","Hackschnitzelkessel 120 - 400 kW"],
+  ["10.7","Hackschnitzelkessel 20 - 120 kW"],
+  ["10.8","Öl-Brennwertgerät < 20 kW (Wandgerät)"],
+  ["10.9","Öl-Brennwertgerät 120-400 kW (Standgerät)"],
+  ["10.10","Öl-Brennwertgerät 20-120 kW (Standgerät)"],
+  ["10.11","Öl-Niedertemperaturgerät 20-120 kW (Standgerät)"],
+  ["10.12","Pelletkessel < 20 kW"],
+  ["10.13","Pelletkessel 20-120 kW"],
+  ["10.14","Rohre für Stromwärmepumpe (Sole-Wasser, Erdkollektor) 10 kW"],
+  ["10.15","Rohre für Stromwärmepumpe (Sole-Wasser, Erdkollektor) 20 kW"],
+  ["10.16","Rohre für Stromwärmepumpe (Sole-Wasser, Erdkollektor) 70 kW"],
+  ["10.17","Rohre für Stromwärmepumpe (Sole-Wasser, Erdsonde) 10 kW"],
+  ["10.18","Rohre für Stromwärmepumpe (Sole-Wasser, Erdsonde) 20 kW"],
+  ["10.19","Rohre für Stromwärmepumpe (Sole-Wasser, Erdsonde) 70 kW"],
+  ["10.20","Rohre für Stromwärmepumpe (Wasser-Wasser) 10 kW"],
+  ["10.21","Rohre für Stromwärmepumpe (Wasser-Wasser) 20 kW"],
+  ["10.22","Rohre für Stromwärmepumpe (Wasser-Wasser) 70 kW"],
+  ["10.23","Solaranlage Flachkollektor"],
+  ["10.24","Solaranlage Vakuumröhrenkollektor"],
+  ["10.25","Stromwärmepumpe (Luft-Wasser) 10 kW"],
+  ["10.26","Stromwärmepumpe (Luft-Wasser) 14kW"],
+  ["10.27","Stromwärmepumpe (Luft-Wasser) 7kW"],
+  ["10.28","Stromwärmepumpe (Sole-Wasser, Erdkollektor) 10 kW"],
+  ["10.29","Stromwärmepumpe (Sole-Wasser, Erdkollektor) 20 kW"],
+  ["10.30","Stromwärmepumpe (Sole-Wasser, Erdkollektor) 70 kW"],
+  ["10.31","Stromwärmepumpe (Sole-Wasser, Erdsonde) 10 kW"],
+  ["10.32","Stromwärmepumpe (Sole-Wasser, Erdsonde) 20 kW"],
+  ["10.33","Stromwärmepumpe (Sole-Wasser, Erdsonde) 70 kW"],
+  ["10.34","Stromwärmepumpe (Wasser-Wasser) 10 kW"],
+  ["10.35","Stromwärmepumpe (Wasser-Wasser) 20 kW"],
+  ["10.36","Stromwärmepumpe (Wasser-Wasser) 70 kW"],
+  ["10.37","Gaswärmepumpe (Luft) 20-70 kW"],
+  ["10.38","Übergabestation Fernwärme"],
+  ["10.39","Lüfter dezentral (Wand & Decke) 60 m³/h"],
+  ["10.40","Lüfter dezentral mit WRG (Wand & Decke) 60 m³/h"],
+  ["10.41","Lüfter zentral 10000 m³/h"],
+  ["10.42","Lüfter zentral 30000 m³/h"],
+  ["10.43","Lüfter zentral 5000 m³/h"],
+  ["10.44","Lüfter zentral mit WRG 1000 m³/h"],
+  ["10.45","Lüfter zentral mit WRG 10000 m³/h"],
+  ["10.46","Lüfter zentral mit WRG 5000 m³/h"],
+  ["10.47","Klimagerät (Direktverdampfer) (pro 1 kW)"],
+  ["10.48","Photovoltaiksystem 1000 kWh/m²*a (ohne Stromgutschrift)"],
+  ["10.49","Photovoltaiksystem 1200 kWh/m²*a (ohne Stromgutschrift)"],
+  ["10.50","Lithium Eisenphosphat (LFP) Batterie (pro 1kWh Speicherkapazität)"],
+  ["10.51","Fahrstuhl - Grundkomponenten (stockwerkunabhängig)"],
+  ["10.52","Fahrstuhl - Komponenten (stockwerkabhängig)"],
+  ["10.53","Fahrtreppe - Grundkomponenten (unabhängig von der Förderhöhe)"],
+  ["10.54","Fahrtreppe - Komponenten (förderhöhenabhängig)"],
+  ["10.55","Flüssiggastank 2700 l/1,2 t (oberirdisch)"],
+  ["10.56","Flüssiggastank 2700 l/1,2 t (unterirdisch)"],
+  ["10.57","Flüssiggastank 4850 l/2,1 t (unterirdisch)"],
+  ["10.58","Flüssiggastank 4850 l/2,1t (oberirdisch)"],
+  ["10.59","Flüssiggastank 6400 l/2,9 t (oberirdisch)"],
+  ["10.60","Flüssiggastank 6400 l/2,9 t (unterirdisch)"],
+  ["10.61","Öltank PE-HD (1000l)"],
+  ["10.62","Öltank PE-HD (1500)"],
+  ["10.63","Öltank PE-HD (750l)"],
+  ["10.64","Öltank Polyamid (1000l)"],
+  ["10.65","Öltank Polyamid (1500l)"],
+  ["10.66","Öltank Polyamid (750l)"],
+  ["10.67","Öltank Stahl/PE-HD (Doppelwandtank, 1000l)"],
+  ["10.68","Öltank Stahl/PE-HD (Doppelwandtank, 750l)"],
+  ["10.69","Pufferspeicher (Edelstahl)"],
+  ["10.70","Pufferspeicher (Stahl)"],
+  ["10.71","Schornstein Edelstahl (Einwandig)"],
+  ["10.72","Schornstein gemauert (Einzügig)"],
+  ["10.73","Schornstein gemauert (Zweizügig)"],
+  ["10.74","Schornstein Polypropylen (PP)"]
+];
+
+const SECOND_ORDER = [
+  ["Botament RD Flow","4.31",""],
+  ["Knauf Katja Sprint / Unterdeckbahn","4.22",""],
+  ["Abdichtungsbahn Sopro AEB 640 (Folie PE-HD mit PP-Vlies)","4.22",""],
+  ["SIGA-Majcoat 250 Unterspannbahn","4.18",""],
+  ["SIGA Majvest 700 SOB Unterspannbahn","4.17",""],
+  ["Klebeband Siga Sicrall (OSB-Stöße)","4.40",""],
+  ["Fixier- und Dichtkleber Sopro FDK 415","4.39",""],
+  ["Giessener Tackerplatte EPS-040-DES sg","5.45",""],
+  ["GUTEX Thermowall (WDVS Holzfaserdämmplatte)","5.32",""],
+  ["GUTEX Thermoflex Holzfaserdämmplatte","5.32",""],
+  ["Gutex Thermofibre Holzfaserdämmung Einblas","5.35",""],
+  ["Isocell Zellulosedämmung","5.35",""],
+  ["Isover Akustic EP 1 (FBH MFH)","5.14",""],
+  ["Misapor Schaumglasschotter 10/75","5.5",""],
+  ["Stahltrapezblechprofile (Dach)","2.7","Annahme: Feuerverzinktes Stahlblech"],
+  ["Aluminiumblech (z.B. Topero Mega Paneel 350)","2.14",""],
+  ["Außentreppe Stahl feuerverzinkt","2.4",""],
+  ["Balkonkonstruktion Stahl feuerverzinkt","2.4",""],
+  ["Bewehrungsstahl","2.6",""],
+  ["Metall Ständer-Profil","2.5",""],
+  ["Konstruktionsholz BSH GL24h/c","3.7",""],
+  ["KVH Konstruktionsvollholz","3.5",""],
+  ["Quattro Balken C24","3.5",""],
+  ["Holzständer / Schwelle","3.5",""],
+  ["CLT-Decke Brettsperrholz","3.8",""],
+  ["3-S-Platte Massivholzplatte","3.9",""],
+  ["OSB-Platten","3.12",""],
+  ["Holzfaserplatten / MDF / Innentür Röhrenspan","3.13",""],
+  ["Fassadenschalung Fichte","3.4",""],
+  ["Holztreppe Laubschnittholz","3.2",""],
+  ["Anhydrit-Estrich Calciumsulfatestrich","6.2",""],
+  ["Zement-Estrich","6.4",""],
+  ["Schnellestrichmörtel Sopro Rapidur M5","7.9",""],
+  ["Fliesen keramisch","6.17",""],
+  ["Fliesenkleber Ardex X 78","6.16",""],
+  ["Linoleum DIN 12524","6.28",""],
+  ["Linoleum-Klebstoff weber.floor 4820","6.20",""],
+  ["Betonplatten Betonwerkstein","6.12",""],
+  ["Gummigranulat Bautenschutzmatte","6.38",""],
+  ["StoPutzgrund Epoxidharzgrundierung","6.8",""],
+  ["Fermacell Gipsfaserplatte / Vapor","7.23",""],
+  ["Oberputz StoDecosit Kunstharzputz","7.14",""],
+  ["Putzmörtel Gipsputz Kalkgips","7.13",""],
+  ["StoSilco K WDVS Kratzputz mineralisch außen","7.17",""],
+  ["Spachtel StoLevell In Fill / Zahnspachtelung","8.11",""],
+  ["Grundierung Sopro GD 749 / StoPrep Isol Q","8.9",""],
+  ["StoPrim Sil Color Voranstrich Silikat","8.10",""],
+  ["StoColor Opticryl Matt Innenfarbe","8.13",""],
+  ["HD-AQUA PUR Parkettsiegel Parkettlack","8.17",""],
+  ["Kunststofffenster Rahmen PVC-U (alle Größen)","9.22",""],
+  ["Holzfenster Rahmen (alle Größen)","9.20",""],
+  ["Fenster Verglasung Dreifachverglasung 3,6 cm","9.4",""],
+  ["Fenstergriffe","9.39",""],
+  ["Rollladen Kunststoff","9.45",""],
+  ["Beton armiert mit 1% Stahl (DIN 12524)","1.29",""],
+  ["Beton C30/37","1.30",""],
+  ["Beton Fertigteiltreppe","1.33",""],
+  ["Bitumendachbahn G 200 S4","4.4",""],
+  ["Dampfbremse Polyethylen (PE)","4.20",""],
+  ["Dachziegelsteine aus Beton","4.2",""],
+  ["Polystyrol PS-Partikelschaum EPS WLG 040","5.45",""],
+  ["Polystyrol PS-Extruderschaum WLG 035 (EPS Gefälledämmung)","5.46",""],
+  ["Mineralwolle WLG 040","5.22",""],
+  ["Steinwolle WLG 035","5.26",""],
+  ["PUR/PIR-Hartschaum WLG 025","5.55",""],
+  ["Splittschüttung zementgebunden","5.49",""]
+];
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// APP LOGIC
+// ════════════════════════════════════════════════════════════════════════════
+
+// Build a fast lookup: code → first-order name
+const FO_MAP = {};
+FIRST_ORDER.forEach(([code, name]) => { FO_MAP[code] = name; });
+
+// State
+let currentOrder = "1";  // "1" = Standard, "2" = Eigene+Hersteller, "all" = beides
+let query = "";
+let activeFilter = "";
+let listening = false;
+let userStopped = false;
+let recognition = null;
+let restartTimer = null;
+
+// Editing state for material modal
+let editingMaterialId = null; // null = new, otherwise = id of user material being edited
+
+// User-added materials, persisted in localStorage
+let userMaterials = [];
+const STORAGE_KEY = 'laczy_user_materials_v1';
+
+function loadUserMaterials(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    userMaterials = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(userMaterials)) userMaterials = [];
+  } catch(e){ userMaterials = []; }
+}
+function saveUserMaterials(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(userMaterials));
+  } catch(e){ console.warn('Speichern fehlgeschlagen', e); }
+}
+function genId(){
+  return 'um_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+loadUserMaterials();
+
+// DOM helpers
+const $ = id => document.getElementById(id);
+const micBtn = $("micBtn"), micRing = $("micRing"), liveBar = $("liveBar"), liveText = $("liveText");
+const statusText = $("statusText"), searchInput = $("searchInput"), clearBtn = $("clearBtn");
+const resultsEl = $("results"), statsCount = $("statsCount"), filterPills = $("filterPills"), noSupport = $("noSupport");
+const customCount = $("customCount");
+const toast = $("toast");
+
+// Order tabs
+document.querySelectorAll(".order-tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".order-tab").forEach(t => t.classList.remove("active", "terra"));
+    tab.classList.add("active");
+    currentOrder = tab.dataset.order;
+    if (currentOrder === "2") tab.classList.add("terra");
+    activeFilter = "";
+    search();
+  });
+});
+
+// Helpers
+function normalize(s){
+  return String(s).toLowerCase()
+    .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
+}
+function escHtml(s){
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// Eco palette category colors
+const CAT_COLORS = {
+  "1": ["#6e6457", "rgba(110, 100, 87, 0.10)"],     // Mineralisch — warm slate
+  "2": ["#a0623a", "rgba(160, 98, 58, 0.10)"],      // Metalle — copper
+  "3": ["#7d5a32", "rgba(125, 90, 50, 0.10)"],      // Holz — oak brown
+  "4": ["#4f6471", "rgba(79, 100, 113, 0.10)"],     // Abdichtung — slate blue
+  "5": ["#7a9168", "rgba(122, 145, 104, 0.12)"],    // Dämmung — sage
+  "6": ["#a87a3c", "rgba(168, 122, 60, 0.10)"],     // Boden — ochre
+  "7": ["#a06a4f", "rgba(160, 106, 79, 0.10)"],     // Ausbau — terra
+  "8": ["#956b78", "rgba(149, 107, 120, 0.10)"],    // Beschichtung — mauve
+  "9": ["#6c8a9c", "rgba(108, 138, 156, 0.10)"],    // Fenster/Türen — sky
+  "10":["#7a7c8c", "rgba(122, 124, 140, 0.10)"]     // Haustechnik — lavender grey
+};
+
+// Filter pills
+function buildPills(){
+  filterPills.innerHTML = "";
+  let cats;
+  if (currentOrder === "1"){
+    cats = Object.keys(CAT_SHORT);
+  } else if (currentOrder === "2"){
+    const used = new Set();
+    SECOND_ORDER.forEach(([,c]) => used.add(c.split(".")[0]));
+    userMaterials.forEach(m => used.add(m.code.split(".")[0]));
+    cats = [...used].sort((a,b) => +a - +b);
+  } else {
+    cats = Object.keys(CAT_SHORT);
+  }
+  cats.forEach(id => {
+    const btn = document.createElement("button");
+    btn.className = "pill" + (activeFilter === id ? " active" : "");
+    btn.textContent = CAT_SHORT[id] || id;
+    btn.dataset.cat = id;
+    btn.addEventListener("click", () => {
+      activeFilter = activeFilter === id ? "" : id;
+      buildPills();
+      search();
+    });
+    filterPills.appendChild(btn);
+  });
+}
+
+// SEARCH
+function search(){
+  buildPills();
+  const q = query.trim();
+  clearBtn.classList.toggle("show", q.length > 0);
+  const words = q ? normalize(q).split(/\s+/).filter(w => w.length > 0) : [];
+
+  // Build the unified item list
+  let items = [];
+  if (currentOrder === "1" || currentOrder === "all"){
+    FIRST_ORDER.forEach(([code, name]) => {
+      items.push({order: 1, code, name, linked: null, note: "", catId: code.split(".")[0], isCustom: false});
+    });
+  }
+  if (currentOrder === "2" || currentOrder === "all"){
+    // Built-in second order (manufacturer entries)
+    SECOND_ORDER.forEach(([name, code, note]) => {
+      items.push({order: 2, code, name, linked: FO_MAP[code] || "", note, catId: code.split(".")[0], isCustom: false});
+    });
+    // User-added materials
+    userMaterials.forEach(m => {
+      items.push({
+        order: 2, code: m.code, name: m.name,
+        linked: FO_MAP[m.code] || "", note: m.note || "",
+        catId: (m.code || "").split(".")[0],
+        isCustom: true, userId: m.id
+      });
+    });
+  }
+
+  // Filter
+  let hits = items.filter(it => {
+    if (activeFilter && it.catId !== activeFilter) return false;
+    if (!words.length) return true;
+    const hay = normalize(
+      it.name + " " + it.code + " " + (it.linked || "") + " " + it.note + " " + (CATEGORIES[it.catId] || "")
+    );
+    return words.every(w => hay.includes(w));
+  });
+
+  // Sort: when searching by code prefix, exact matches first
+  if (q){
+    hits.sort((a, b) => {
+      const ac = a.code === q ? 0 : (a.code.startsWith(q) ? 1 : 2);
+      const bc = b.code === q ? 0 : (b.code.startsWith(q) ? 1 : 2);
+      if (ac !== bc) return ac - bc;
+      // user-custom before built-in within same rank
+      if (a.isCustom !== b.isCustom) return a.isCustom ? -1 : 1;
+      return 0;
+    });
+  } else {
+    // No query: user customs come first in "Eigene" tab
+    if (currentOrder === "2"){
+      hits.sort((a, b) => {
+        if (a.isCustom !== b.isCustom) return a.isCustom ? -1 : 1;
+        return 0;
+      });
+    }
+  }
+
+  // Stats + custom count badge
+  customCount.textContent = SECOND_ORDER.length + userMaterials.length;
+  const totalForOrder = currentOrder === "1" ? FIRST_ORDER.length :
+                        currentOrder === "2" ? (SECOND_ORDER.length + userMaterials.length) :
+                        FIRST_ORDER.length + SECOND_ORDER.length + userMaterials.length;
+  if (q || activeFilter){
+    statsCount.innerHTML = `<strong>${hits.length}</strong> von ${totalForOrder} Materialien`;
+  } else {
+    const customBit = userMaterials.length > 0 && (currentOrder === "2" || currentOrder === "all")
+      ? ` · <strong>${userMaterials.length}</strong> eigene` : '';
+    statsCount.innerHTML = `<strong>${totalForOrder}</strong> Materialien${customBit}`;
+  }
+
+  // Empty state
+  if (!hits.length){
+    if (currentOrder === "2" && userMaterials.length === 0 && !q && !activeFilter){
+      // Tab "Eigene" without any user materials yet — encourage adding
+      resultsEl.innerHTML = `
+        <div class="empty">
+          <div>Noch keine eigenen Materialien angelegt.</div>
+          <button class="empty-cta" type="button" onclick="openAddModal()">+ Erstes Material anlegen</button>
+        </div>`;
+    } else {
+      resultsEl.innerHTML = `<div class="empty">Kein Treffer für „${escHtml(q)}"</div>`;
+    }
+    return;
+  }
+
+  // Render (cap at 200 for DOM perf)
+  const cap = 200;
+  const shown = hits.slice(0, cap);
+  resultsEl.innerHTML = shown.map((it, i) => {
+    const [col, bg] = CAT_COLORS[it.catId] || ["#888", "rgba(136,136,136,0.1)"];
+    const nameHtml = words.length ? highlight(it.name, words) : escHtml(it.name);
+    let cardClasses = "result-card";
+    if (it.order === 2) cardClasses += " second-order";
+    if (it.isCustom) cardClasses += " user-custom";
+
+    const customTag = it.isCustom ? `<span class="custom-tag">Eigenes</span>` : "";
+    const orderTag = it.isCustom ? customTag :
+      it.order === 2 ? `<span style="color:var(--terra);font-weight:600">2°</span>` :
+                       `<span style="color:var(--text-3)">1°</span>`;
+    const linkedHtml = it.order === 2 && it.linked
+      ? `<div class="linked-name">${escHtml(it.linked)}</div>` : "";
+    const noteHtml = it.note
+      ? ` · <span class="note-tag">${escHtml(it.note)}</span>` : "";
+
+    const editBtn = it.isCustom
+      ? `<button class="row-edit-btn" type="button" onclick="openEditModal('${it.userId}')" title="Bearbeiten" aria-label="Bearbeiten">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+         </button>` : "";
+
+    return `<div class="${cardClasses}" style="animation-delay:${Math.min(i, 12) * 18}ms">
+      <div class="lca-num" style="color:${col};background:${bg};border-color:${col}33">${escHtml(it.code)}</div>
+      <div>
+        <div class="result-name">${nameHtml}</div>
+        <div class="result-meta">${orderTag} ${escHtml(CAT_SHORT[it.catId] || it.catId)}${noteHtml}</div>
+        ${linkedHtml}
+      </div>
+      <div class="result-actions">
+        ${editBtn}
+        <button class="copy-btn" onclick="copyNum('${escHtml(it.code)}', this)">${escHtml(it.code)}</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  if (hits.length > cap){
+    resultsEl.innerHTML += `<div class="empty" style="padding:1rem"><p>+ ${hits.length - cap} weitere Treffer — Suche verfeinern</p></div>`;
+  }
+}
+
+function highlight(text, words){
+  let t = escHtml(text);
+  words.forEach(w => {
+    if (w.length < 2) return;
+    const esc = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    t = t.replace(new RegExp(`(${esc})`, "gi"), "<mark>$1</mark>");
+  });
+  return t;
+}
+
+function copyNum(num, btn){
+  if (!navigator.clipboard){
+    showToast(num + ' (Kopieren nicht unterstützt)', 'terra');
+    return;
+  }
+  navigator.clipboard.writeText(num).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = "✓ kopiert";
+    btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove("copied"); }, 1500);
+  });
+}
+window.copyNum = copyNum;
+
+// Toast
+let toastTimer = null;
+function showToast(msg, variant = ""){
+  toast.className = "toast" + (variant ? " " + variant : "");
+  toast.textContent = msg;
+  toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), 2400);
+}
+
+// Input handlers
+searchInput.addEventListener("input", () => { query = searchInput.value; search(); });
+clearBtn.addEventListener("click", () => { query = ""; searchInput.value = ""; search(); searchInput.focus(); });
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADD / EDIT MATERIAL MODAL
+// ════════════════════════════════════════════════════════════════════════════
+
+const matModal = $("matModal");
+const matModalTitle = $("matModalTitle");
+const newName = $("newName"), newCode = $("newCode"), newNote = $("newNote");
+const newCodeHint = $("newCodeHint");
+const codeList = $("codeList");
+const saveBtn = $("saveBtn"), deleteBtn = $("deleteBtn");
+
+// Populate datalist with all valid first-order codes
+function populateCodeList(){
+  codeList.innerHTML = "";
+  FIRST_ORDER.forEach(([code, name]) => {
+    const opt = document.createElement("option");
+    opt.value = code;
+    opt.label = name;
+    codeList.appendChild(opt);
+  });
+}
+populateCodeList();
+
+function openAddModal(){
+  editingMaterialId = null;
+  matModalTitle.textContent = "Neues Material";
+  newName.value = "";
+  newCode.value = "";
+  newNote.value = "";
+  deleteBtn.style.display = "none";
+  saveBtn.textContent = "Speichern";
+  validateCodeInput();
+  matModal.classList.add("open");
+  matModal.setAttribute("aria-hidden", "false");
+  setTimeout(() => newName.focus(), 100);
+}
+window.openAddModal = openAddModal;
+
+function openEditModal(id){
+  const m = userMaterials.find(x => x.id === id);
+  if (!m) return;
+  editingMaterialId = id;
+  matModalTitle.textContent = "Material bearbeiten";
+  newName.value = m.name;
+  newCode.value = m.code;
+  newNote.value = m.note || "";
+  deleteBtn.style.display = "inline-flex";
+  saveBtn.textContent = "Aktualisieren";
+  validateCodeInput();
+  matModal.classList.add("open");
+  matModal.setAttribute("aria-hidden", "false");
+  setTimeout(() => newName.focus(), 100);
+}
+window.openEditModal = openEditModal;
+
+function closeModal(modal){
+  modal.classList.remove("open");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+// Close handlers — overlay click, X button, Cancel button
+document.querySelectorAll('[data-close]').forEach(el => {
+  el.addEventListener('click', (e) => {
+    const modal = e.target.closest('.modal');
+    if (modal) closeModal(modal);
+  });
+});
+// Esc key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape'){
+    document.querySelectorAll('.modal.open').forEach(m => closeModal(m));
+  }
+});
+
+// Live code validation
+function validateCodeInput(){
+  const v = newCode.value.trim();
+  if (!v){
+    newCodeHint.textContent = "Tippe Nummer oder Name. Auto-Vervollständigung.";
+    newCodeHint.className = "field-hint";
+    newCode.classList.remove("invalid");
+    return;
+  }
+  if (FO_MAP[v]){
+    newCodeHint.textContent = "✓ " + FO_MAP[v];
+    newCodeHint.className = "field-hint match";
+    newCode.classList.remove("invalid");
+  } else {
+    newCodeHint.textContent = "Code nicht in QNG-Standardliste — bitte aus Vorschlägen wählen";
+    newCodeHint.className = "field-hint error";
+    newCode.classList.add("invalid");
+  }
+}
+newCode.addEventListener("input", validateCodeInput);
+
+// Save
+saveBtn.addEventListener("click", () => {
+  const name = newName.value.trim();
+  const code = newCode.value.trim();
+  const note = newNote.value.trim();
+
+  let valid = true;
+  if (!name){ newName.classList.add("invalid"); valid = false; } else { newName.classList.remove("invalid"); }
+  if (!code || !FO_MAP[code]){ newCode.classList.add("invalid"); valid = false; }
+  if (!valid){
+    showToast("Bitte Bezeichnung und gültigen QNG-Code eingeben", "terra");
+    return;
+  }
+
+  if (editingMaterialId){
+    const m = userMaterials.find(x => x.id === editingMaterialId);
+    if (m){
+      m.name = name; m.code = code; m.note = note;
+      m.updatedAt = Date.now();
+      saveUserMaterials();
+      showToast("Aktualisiert", "sage");
+    }
+  } else {
+    userMaterials.push({
+      id: genId(),
+      name, code, note,
+      createdAt: Date.now()
+    });
+    saveUserMaterials();
+    showToast("Material gespeichert", "sage");
+  }
+  closeModal(matModal);
+  search();
+});
+
+// Delete (from edit mode)
+deleteBtn.addEventListener("click", () => {
+  if (!editingMaterialId) return;
+  if (!confirm("Dieses Material wirklich löschen?")) return;
+  userMaterials = userMaterials.filter(m => m.id !== editingMaterialId);
+  saveUserMaterials();
+  closeModal(matModal);
+  showToast("Gelöscht", "terra");
+  search();
+});
+
+// Add button on stats bar
+$("addMatBtn").addEventListener("click", () => {
+  // Switch to "Eigene" tab so user sees their new material immediately
+  if (currentOrder === "1"){
+    document.querySelectorAll(".order-tab").forEach(t => t.classList.remove("active", "terra"));
+    const t = document.querySelector('.order-tab[data-order="2"]');
+    t.classList.add("active", "terra");
+    currentOrder = "2";
+  }
+  openAddModal();
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// BACKUP MODAL — Export / Import / Wipe
+// ════════════════════════════════════════════════════════════════════════════
+
+const backupModal = $("backupModal");
+const backupCount = $("backupCount");
+
+$("backupBtn").addEventListener("click", () => {
+  backupCount.textContent = userMaterials.length;
+  backupModal.classList.add("open");
+  backupModal.setAttribute("aria-hidden", "false");
+});
+
+$("exportBtn").addEventListener("click", () => {
+  const payload = {
+    app: "LACZY",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    materials: userMaterials
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const date = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `laczy-materialien-${date}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast("Backup heruntergeladen", "sage");
+});
+
+$("importBtn").addEventListener("click", () => $("importFile").click());
+$("importFile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const data = JSON.parse(reader.result);
+      let imported;
+      if (Array.isArray(data)) imported = data;
+      else if (Array.isArray(data.materials)) imported = data.materials;
+      else throw new Error("Unbekanntes Format");
+      // Validate and clean
+      const cleaned = imported.filter(m =>
+        m && typeof m.name === "string" && typeof m.code === "string" && m.name.trim() && m.code.trim()
+      ).map(m => ({
+        id: m.id || genId(),
+        name: String(m.name).slice(0, 200),
+        code: String(m.code).slice(0, 30),
+        note: typeof m.note === "string" ? m.note.slice(0, 300) : "",
+        createdAt: m.createdAt || Date.now()
+      }));
+      if (!cleaned.length){
+        showToast("Keine gültigen Materialien in der Datei", "terra");
+        return;
+      }
+      if (!confirm(`${cleaned.length} Materialien importieren? Deine aktuelle Liste (${userMaterials.length}) wird ersetzt.`)){
+        return;
+      }
+      userMaterials = cleaned;
+      saveUserMaterials();
+      closeModal(backupModal);
+      showToast(`${cleaned.length} Materialien importiert`, "sage");
+      search();
+    } catch(err){
+      showToast("Datei konnte nicht gelesen werden: " + err.message, "terra");
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = "";
+});
+
+$("wipeBtn").addEventListener("click", () => {
+  if (userMaterials.length === 0){
+    showToast("Keine eigenen Materialien vorhanden", "terra");
+    return;
+  }
+  if (!confirm(`Wirklich alle ${userMaterials.length} eigenen Materialien löschen? Tipp: Vorher Backup exportieren.`)) return;
+  userMaterials = [];
+  saveUserMaterials();
+  closeModal(backupModal);
+  showToast("Alle eigenen Materialien gelöscht", "terra");
+  search();
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// VOICE — Continuous mode
+// ════════════════════════════════════════════════════════════════════════════
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+function buildRecognition(){
+  const r = new SR();
+  r.lang = "de-DE";
+  r.interimResults = true;
+  r.continuous = true;
+  r.maxAlternatives = 1;
+
+  r.onstart = () => {
+    listening = true;
+    userStopped = false;
+    micBtn.classList.add("listening");
+    micRing.classList.add("listening");
+    liveBar.classList.add("active");
+    liveText.textContent = "Hört zu …";
+    statusText.textContent = "Dauerhören aktiv — sprich beliebig viele Begriffe";
+    statusText.classList.add("active");
+  };
+
+  r.onresult = e => {
+    let interim = "", newFinal = "";
+    for (let i = e.resultIndex; i < e.results.length; i++){
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) newFinal += t;
+      else interim += t;
+    }
+    if (newFinal){
+      const t = newFinal.trim();
+      query = t;
+      searchInput.value = t;
+      search();
+      liveText.textContent = `„${t}"`;
+    } else if (interim){
+      const t = interim.trim();
+      query = t;
+      searchInput.value = t;
+      search();
+      liveText.textContent = t;
+    }
+  };
+
+  r.onerror = e => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed"){
+      statusText.textContent = "Mikrofonzugriff verweigert";
+      statusText.classList.remove("active");
+      userStopped = true;
+      hardStop();
+    }
+  };
+
+  r.onend = () => {
+    if (!userStopped){
+      clearTimeout(restartTimer);
+      restartTimer = setTimeout(() => {
+        try{
+          recognition.start();
+        } catch(err){
+          setTimeout(() => {
+            try{ recognition.start(); }
+            catch(e2){
+              recognition = buildRecognition();
+              try{ recognition.start(); }
+              catch(e3){ hardStop(); }
+            }
+          }, 500);
+        }
+      }, 200);
+    } else {
+      hardStop();
+    }
+  };
+
+  return r;
+}
+
+function hardStop(){
+  listening = false;
+  userStopped = true;
+  clearTimeout(restartTimer);
+  micBtn.classList.remove("listening");
+  micRing.classList.remove("listening");
+  liveBar.classList.remove("active");
+  statusText.textContent = "Mikrofon drücken um Dauerhören zu starten";
+  statusText.classList.remove("active");
+}
+
+if (!SR){
+  noSupport.style.display = "block";
+  micBtn.disabled = true;
+  micBtn.style.opacity = "0.4";
+  statusText.textContent = "Texteingabe verfügbar (Sprache nur in Chrome/Edge/Safari)";
+} else {
+  recognition = buildRecognition();
+  micBtn.addEventListener("click", () => {
+    if (listening){
+      userStopped = true;
+      try{ recognition.stop(); } catch(e){}
+      hardStop();
+    } else {
+      userStopped = false;
+      try{ recognition.start(); }
+      catch(e){
+        recognition = buildRecognition();
+        try{ recognition.start(); }
+        catch(e2){ statusText.textContent = "Fehler — Seite neu laden"; }
+      }
+    }
+  });
+}
+
+// Init
+search();
+
+// ════════════════════════════════════════════════════════════════════════════
+// PWA — Service Worker, Install-Prompt, Offline-Status
+// ════════════════════════════════════════════════════════════════════════════
+
+if ("serviceWorker" in navigator){
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").then(reg => {
+      reg.addEventListener("updatefound", () => {
+        const newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener("statechange", () => {
+          if (newWorker.state === "installed" && navigator.serviceWorker.controller){
+            const banner = $("updateBanner");
+            const btn = $("updateBtn");
+            banner.classList.add("show");
+            btn.onclick = () => {
+              newWorker.postMessage({type: "SKIP_WAITING"});
+              window.location.reload();
+            };
+          }
+        });
+      });
+    }).catch(() => { /* SW registration failed — app still works */ });
+
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+  });
+}
+
+// Online/Offline status
+const appStatusEl = $("appStatus");
+const appStatusText = $("appStatusText");
+function updateOnlineStatus(){
+  if (navigator.onLine){
+    appStatusEl.classList.remove("offline");
+    appStatusText.textContent = "Online";
+  } else {
+    appStatusEl.classList.add("offline");
+    appStatusText.textContent = "Offline · läuft trotzdem";
+  }
+}
+window.addEventListener("online", updateOnlineStatus);
+window.addEventListener("offline", updateOnlineStatus);
+updateOnlineStatus();
+
+// Install prompt
+let deferredPrompt = null;
+const installBtn = $("installBtn");
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  installBtn.classList.add("show");
+});
+
+installBtn.addEventListener("click", async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  const {outcome} = await deferredPrompt.userChoice;
+  if (outcome === "accepted"){
+    installBtn.classList.remove("show");
+  }
+  deferredPrompt = null;
+});
+
+window.addEventListener("appinstalled", () => {
+  installBtn.classList.remove("show");
+  deferredPrompt = null;
+  showToast("LACZY ist jetzt installiert", "sage");
+});
+
+const isStandalone = window.matchMedia("(display-mode: standalone)").matches
+                  || window.navigator.standalone === true;
+if (isStandalone){
+  installBtn.style.display = "none";
+}
+
+// iOS hint (iOS doesn't fire beforeinstallprompt)
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+if (isIOS && !isStandalone){
+  const dismissed = (() => { try { return localStorage.getItem("iosHintDismissed"); } catch(e){ return null; } })();
+  if (!dismissed){
+    const iosHint = $("iosHint");
+    iosHint.classList.add("show");
+    $("iosClose").addEventListener("click", () => {
+      iosHint.classList.remove("show");
+      try{ localStorage.setItem("iosHintDismissed", "1"); } catch(e){}
+    });
+  }
+}
+</script>
+</body>
+</html>
