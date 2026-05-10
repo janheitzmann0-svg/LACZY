@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+<!-- ════════════════════════════════════════════════════════════════════
+     SECURITY HEADERS (via meta tags — GitHub Pages doesn't allow real headers)
+     The internal build replaces these with real HTTP headers (see nginx.conf
+     and .htaccess in the docs/ folder of that build).
+     ════════════════════════════════════════════════════════════════════ -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self';
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src 'self' https://fonts.gstatic.com data:;
+  img-src 'self' data:;
+  connect-src 'self';
+  manifest-src 'self';
+  worker-src 'self';
+  frame-ancestors 'none';
+  base-uri 'self';
+  form-action 'none';
+  object-src 'none';
+  upgrade-insecure-requests;
+">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta http-equiv="Permissions-Policy" content="geolocation=(), camera=(), payment=(), usb=(), accelerometer=(), gyroscope=(), magnetometer=(), microphone=(self)">
+
+<title>LACZY — QNG-Baustoffsuche</title>
+<meta name="description" content="LACZY — QNG-Rechenwerte 2023 finden per Sprache oder Text. Eigene Materialien anlegen.">
+<meta name="theme-color" content="#f5f1e8">
+<meta property="og:title" content="LACZY">
+<meta property="og:description" content="LCA, aber entspannt. Sprich oder tippe — finde sofort den QNG-Code für jeden Baustoff.">
+<meta property="og:type" content="website">
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+<!-- iOS Standalone -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="LACZY">
+
+<!-- Fonts: warm display serif + clean body sans + characterful mono -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,300;1,9..144,400&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  /* Eco palette — warm paper + sage + terra */
+  --bg: #f5f1e8;
+  --surface: #fbf8f1;
+  --surface-2: #ede5d3;
+  --surface-3: #e3d9c2;
+
+  --border: rgba(60, 50, 30, 0.10);
+  --border-2: rgba(60, 50, 30, 0.18);
+
+  --text: #2a2f26;
+  --text-2: #6b7466;
+  --text-3: #a39e8e;
+
+  --sage: #7a9168;
+  --sage-deep: #5d7a4d;
+  --sage-glow: rgba(122, 145, 104, 0.14);
+  --sage-tint: rgba(122, 145, 104, 0.08);
+
+  --terra: #c47a52;
+  --terra-deep: #a86840;
+  --terra-glow: rgba(196, 122, 82, 0.14);
+  --terra-tint: rgba(196, 122, 82, 0.08);
+
+  --sun: #d9a566;
+  --sun-glow: rgba(217, 165, 102, 0.18);
+
+  --green-live: #7a9168;
+  --warn: #c47a52;
+
+  --font-display: 'Fraunces', 'Georgia', 'Iowan Old Style', serif;
+  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, monospace;
+
+  --shadow-soft: 0 1px 2px rgba(60, 50, 30, 0.04), 0 4px 16px rgba(60, 50, 30, 0.04);
+  --shadow-lift: 0 2px 4px rgba(60, 50, 30, 0.06), 0 12px 32px rgba(60, 50, 30, 0.08);
+  --shadow-deep: 0 4px 8px rgba(60, 50, 30, 0.08), 0 24px 64px rgba(60, 50, 30, 0.12);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* gentle organic background — paper texture via radial blobs */
+body::before{
+  content:'';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 90% -10%, rgba(122,145,104,0.06), transparent 60%),
+    radial-gradient(ellipse 70% 50% at -10% 90%, rgba(196,122,82,0.05), transparent 60%);
+  pointer-events: none; z-index: 0;
+}
+
+.app{
+  position: relative; z-index: 1;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+  padding-top: max(1.5rem, env(safe-area-inset-top));
+}
+
+/* ── App bar (status + install) ───────────────────────────────── */
+.app-bar{
+  display:flex; align-items:center; justify-content:space-between;
+  margin-bottom: 1.25rem; gap: 8px; flex-wrap: wrap;
+}
+.app-status{
+  display:inline-flex; align-items:center; gap:7px;
+  font-size: 11px; font-family: var(--font-mono);
+  color: var(--text-3); letter-spacing: .06em; text-transform: uppercase;
+}
+.app-status .status-dot{
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--sage); box-shadow: 0 0 0 4px var(--sage-tint);
+}
+.app-status.offline .status-dot{
+  background: var(--terra); box-shadow: 0 0 0 4px var(--terra-tint);
+}
+.app-status.offline span{color: var(--terra-deep)}
+
+.toolbar-actions{display:flex; align-items:center; gap:6px}
+.icon-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  width: 34px; height: 34px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; cursor: pointer;
+  color: var(--text-2); transition: all .15s ease;
+}
+.icon-btn:hover{ background: var(--surface-2); color: var(--text); border-color: var(--border-2) }
+.icon-btn svg{ width: 16px; height: 16px }
+
+.install-btn{
+  display:none; align-items:center; gap:7px;
+  background: var(--sage); border: none; color: #fff;
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+  padding: 8px 14px; border-radius: 100px; cursor: pointer;
+  letter-spacing: .01em; box-shadow: var(--shadow-soft);
+  transition: all .15s ease;
+}
+.install-btn:hover{ background: var(--sage-deep); transform: translateY(-1px); box-shadow: var(--shadow-lift) }
+.install-btn.show{display: inline-flex}
+.install-btn svg{width: 14px; height: 14px}
+
+/* ── Header / Brand ───────────────────────────────────────────── */
+.brand{ text-align: center; margin: 2rem 0 2.25rem }
+.brand-mark{
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-bottom: 1rem;
+}
+.brand-mark svg{ width: 36px; height: 44px }
+.brand h1{
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(44px, 9vw, 64px);
+  letter-spacing: -0.04em;
+  color: var(--text);
+  line-height: 1;
+  font-variation-settings: "opsz" 144, "SOFT" 50;
+}
+.brand h1 em{
+  font-style: italic;
+  font-weight: 300;
+  color: var(--sage-deep);
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+}
+.brand-tagline{
+  margin-top: 0.65rem;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-2);
+  letter-spacing: 0.02em;
+}
+.brand-tagline .sep{ margin: 0 0.5em; color: var(--text-3) }
+
+/* ── Order toggle ─────────────────────────────────────────────── */
+.order-toggle{
+  display: flex; gap: 4px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 4px;
+  margin-bottom: 1.25rem; box-shadow: var(--shadow-soft);
+}
+.order-tab{
+  flex: 1; padding: 11px 10px;
+  border-radius: 10px; border: none; background: transparent;
+  color: var(--text-2); cursor: pointer;
+  font-family: var(--font-body); font-size: 13px; font-weight: 500;
+  transition: all .15s ease;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.order-tab:hover{ color: var(--text); background: var(--surface-2) }
+.order-tab.active{
+  background: var(--sage); color: #fff;
+  box-shadow: 0 2px 8px rgba(122,145,104,0.3);
+}
+.order-tab.active.terra{
+  background: var(--terra);
+  box-shadow: 0 2px 8px rgba(196,122,82,0.3);
+}
+.order-tab .tab-label{font-weight: 600; font-size: 13px}
+.order-tab .tab-sub{
+  font-size: 10px; font-family: var(--font-mono);
+  opacity: .75; letter-spacing: .03em; text-transform: lowercase;
+}
+.order-tab.active .tab-sub{opacity: .9}
+
+/* ── Mic ──────────────────────────────────────────────────────── */
+.mic-section{ display:flex; flex-direction:column; align-items:center; gap:12px; margin: 0.5rem 0 1.5rem }
+.mic-ring{ position: relative; width: 92px; height: 92px; display: flex; align-items: center; justify-content: center }
+.mic-ring::before{
+  content:''; position: absolute; inset: 0; border-radius: 50%;
+  border: 1px solid var(--border-2);
+  transition: all .3s ease;
+}
+.mic-ring.listening::before{
+  border-color: var(--sage); border-width: 2px;
+  animation: ring-pulse 2s ease-in-out infinite;
+}
+@keyframes ring-pulse{
+  0%,100%{transform: scale(1); opacity: 1}
+  50%{transform: scale(1.15); opacity: .35}
+}
+.mic-btn{
+  width: 68px; height: 68px; border-radius: 50%;
+  border: 1px solid var(--border-2); background: var(--surface);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all .2s ease; position: relative; z-index: 1;
+  box-shadow: var(--shadow-soft);
+  color: var(--text-2);
+}
+.mic-btn:hover{
+  background: var(--surface-2); color: var(--sage-deep);
+  box-shadow: var(--shadow-lift);
+}
+.mic-btn.listening{
+  background: var(--sage); border-color: var(--sage);
+  color: #fff; box-shadow: 0 0 0 8px var(--sage-glow), var(--shadow-lift);
+}
+.mic-btn svg{width: 24px; height: 24px; transition: all .2s}
+.mic-btn .mic-icon{display: block} .mic-btn .stop-icon{display: none}
+.mic-btn.listening .mic-icon{display: none} .mic-btn.listening .stop-icon{display: block}
+
+.live-bar{
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 16px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 100px; font-size: 12px; color: var(--text-2);
+  min-height: 32px; opacity: 0; transform: translateY(-4px);
+  transition: opacity .2s, transform .2s;
+}
+.live-bar.active{opacity: 1; transform: translateY(0)}
+.live-dot{
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--sage); animation: live-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes live-pulse{
+  0%,100%{opacity: 1; transform: scale(1)}
+  50%{opacity: .4; transform: scale(.8)}
+}
+.live-text{
+  color: var(--text); font-family: var(--font-display);
+  font-style: italic; font-weight: 400;
+  max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.status-text{
+  font-size: 11px; font-family: var(--font-mono);
+  color: var(--text-3); letter-spacing: .04em; height: 14px;
+  text-align: center;
+}
+.status-text.active{color: var(--sage-deep)}
+
+/* ── Search ───────────────────────────────────────────────────── */
+.search-wrap{ position: relative; margin-bottom: 1.25rem }
+.search-icon{
+  position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+  color: var(--text-3); pointer-events: none;
+}
+.search-input{
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 44px 14px 44px;
+  font-size: 15px; font-family: var(--font-body);
+  color: var(--text);
+  outline: none; transition: all .2s;
+  -webkit-appearance: none;
+  box-shadow: var(--shadow-soft);
+}
+.search-input::placeholder{color: var(--text-3); font-style: italic}
+.search-input:focus{
+  border-color: var(--sage);
+  box-shadow: 0 0 0 4px var(--sage-tint), var(--shadow-soft);
+}
+.search-clear{
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  background: var(--surface-2); border: none; cursor: pointer;
+  color: var(--text-2); padding: 5px;
+  border-radius: 50%; display: none; line-height: 0;
+  width: 24px; height: 24px; align-items: center; justify-content: center;
+}
+.search-clear.show{display: inline-flex}
+.search-clear:hover{background: var(--surface-3); color: var(--text)}
+
+/* ── Stats + filter pills ─────────────────────────────────────── */
+.stats-bar{
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px; flex-wrap: wrap; gap: 10px;
+}
+.stats-count{
+  font-size: 12px; font-family: var(--font-mono);
+  color: var(--text-3); letter-spacing: .02em;
+}
+.stats-count strong{color: var(--sage-deep); font-weight: 500}
+.add-mat-btn{
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--terra-tint); border: 1px solid var(--terra);
+  color: var(--terra-deep);
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+  padding: 6px 12px; border-radius: 100px; cursor: pointer;
+  letter-spacing: .01em; transition: all .15s ease;
+}
+.add-mat-btn:hover{
+  background: var(--terra); color: #fff; transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+.add-mat-btn svg{width: 13px; height: 13px}
+
+.filter-pills{
+  display: flex; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.pill{
+  font-size: 11px; padding: 5px 12px;
+  border-radius: 100px;
+  border: 1px solid var(--border); color: var(--text-2);
+  cursor: pointer; background: transparent;
+  font-family: var(--font-body); font-weight: 500;
+  transition: all .15s; white-space: nowrap;
+}
+.pill:hover{border-color: var(--border-2); color: var(--text); background: var(--surface)}
+.pill.active{
+  border-color: var(--sage); color: #fff; background: var(--sage);
+  box-shadow: 0 1px 4px rgba(122,145,104,0.25);
+}
+
+/* ── Result cards ─────────────────────────────────────────────── */
+.results{ display: flex; flex-direction: column; gap: 6px }
+.result-card{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: grid; grid-template-columns: 64px 1fr auto;
+  align-items: center; gap: 12px;
+  transition: all .15s ease;
+  animation: fadeIn .2s ease;
+}
+@keyframes fadeIn{
+  from{opacity: 0; transform: translateY(4px)}
+  to{opacity: 1; transform: translateY(0)}
+}
+.result-card:hover{
+  border-color: var(--border-2);
+  background: var(--surface);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+.result-card.second-order{border-left: 3px solid var(--terra)}
+.result-card.user-custom{
+  border-left: 3px solid var(--sage);
+  background: linear-gradient(to right, var(--sage-tint) 0%, var(--surface) 60%);
+}
+
+.lca-num{
+  font-family: var(--font-mono); font-size: 13px; font-weight: 500;
+  padding: 6px 8px; border-radius: 7px;
+  text-align: center;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.result-name{
+  font-size: 14px; font-weight: 400;
+  color: var(--text); line-height: 1.45;
+}
+.result-name mark{
+  background: var(--sun-glow); color: var(--terra-deep);
+  border-radius: 3px; padding: 0 2px; font-weight: 500;
+}
+.result-meta{
+  font-size: 11px; color: var(--text-3); font-family: var(--font-mono);
+  margin-top: 3px; display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+}
+.linked-name{
+  font-size: 11px; color: var(--text-3); font-family: var(--font-body);
+  margin-top: 3px; font-style: italic;
+}
+.linked-name::before{content: "→ "; color: var(--terra); font-style: normal; font-weight: 600}
+.note-tag{ color: var(--terra-deep); font-style: italic }
+.custom-tag{
+  display: inline-flex; align-items: center; gap: 3px;
+  color: var(--sage-deep); background: var(--sage-tint);
+  padding: 1px 7px; border-radius: 100px;
+  font-size: 10px; font-weight: 500; letter-spacing: .02em;
+}
+.custom-tag::before{content: "✦"; font-size: 9px}
+
+.result-actions{ display: flex; gap: 4px; align-items: center }
+.copy-btn{
+  background: transparent;
+  border: 1px solid transparent; border-radius: 7px;
+  cursor: pointer; color: var(--text-2);
+  padding: 6px 9px; font-size: 11px; font-family: var(--font-mono);
+  transition: all .15s; white-space: nowrap;
+}
+.copy-btn:hover{
+  border-color: var(--border-2); color: var(--text);
+  background: var(--surface-2);
+}
+.copy-btn.copied{
+  color: var(--sage-deep); border-color: var(--sage);
+  background: var(--sage-tint);
+}
+.row-edit-btn{
+  background: transparent; border: 1px solid transparent;
+  border-radius: 7px; cursor: pointer; color: var(--text-3);
+  padding: 5px; transition: all .15s; line-height: 0;
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.row-edit-btn:hover{
+  border-color: var(--border-2); color: var(--sage-deep);
+  background: var(--sage-tint);
+}
+.row-edit-btn svg{ width: 14px; height: 14px }
+
+.empty{
+  text-align: center; padding: 3rem 1rem;
+  color: var(--text-3);
+  font-family: var(--font-display);
+  font-style: italic; font-size: 16px;
+}
+.empty .empty-cta{
+  margin-top: 1rem; display: inline-block;
+  font-family: var(--font-body); font-style: normal;
+  font-size: 13px; color: var(--terra-deep);
+  background: var(--terra-tint); border: 1px solid var(--terra);
+  padding: 7px 14px; border-radius: 100px;
+  cursor: pointer;
+}
+.empty .empty-cta:hover{background: var(--terra); color: #fff}
+
+.no-support{
+  background: var(--terra-tint);
+  border: 1px solid var(--terra);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 12px; color: var(--terra-deep);
+  margin-bottom: 1rem; display: none;
+}
+
+.source-note{
+  text-align: center; font-size: 11px;
+  color: var(--text-3); font-family: var(--font-mono);
+  margin-top: 2.5rem; padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  letter-spacing: .04em;
+}
+.source-note .heart{color: var(--sage); font-style: normal}
+
+/* ── Update banner ────────────────────────────────────────────── */
+.update-banner{
+  display: none;
+  background: var(--sage-tint);
+  border: 1px solid var(--sage);
+  border-radius: 12px; padding: 11px 14px; margin-bottom: 14px;
+  align-items: center; justify-content: space-between; gap: 10px;
+  font-size: 13px; color: var(--sage-deep);
+}
+.update-banner.show{display: flex}
+.update-banner button{
+  background: var(--sage); border: none; color: #fff;
+  padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+}
+.update-banner button:hover{background: var(--sage-deep)}
+
+/* ── iOS install hint ─────────────────────────────────────────── */
+.ios-hint{
+  display: none;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 13px 38px 13px 14px;
+  margin-bottom: 14px; font-size: 13px;
+  color: var(--text-2); line-height: 1.55; position: relative;
+}
+.ios-hint.show{display: block}
+.ios-hint strong{color: var(--text); font-weight: 500}
+.ios-hint .ios-close{
+  position: absolute; top: 8px; right: 8px;
+  background: none; border: none; color: var(--text-3);
+  cursor: pointer; font-size: 18px; padding: 4px 8px; line-height: 1;
+}
+.ios-hint .ios-close:hover{color: var(--text)}
+.ios-hint kbd{
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 2px 6px;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text); margin: 0 2px;
+}
+
+/* ── Modal (Add/Edit Material, Backup) ────────────────────────── */
+.modal{
+  position: fixed; inset: 0; z-index: 100;
+  display: none; align-items: center; justify-content: center;
+  padding: 1rem; padding-top: max(1rem, env(safe-area-inset-top));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.modal.open{display: flex}
+.modal-overlay{
+  position: absolute; inset: 0;
+  background: rgba(38, 32, 20, 0.45);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  animation: fade-in .2s ease;
+}
+@keyframes fade-in{from{opacity: 0} to{opacity: 1}}
+.modal-card{
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  width: 100%; max-width: 480px;
+  max-height: 90vh; overflow-y: auto;
+  box-shadow: var(--shadow-deep);
+  animation: lift-in .25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes lift-in{
+  from{opacity: 0; transform: translateY(20px) scale(.98)}
+  to{opacity: 1; transform: translateY(0) scale(1)}
+}
+.modal-header{
+  padding: 20px 22px 12px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.modal-header h2{
+  font-family: var(--font-display);
+  font-weight: 400; font-size: 24px;
+  letter-spacing: -0.02em; color: var(--text);
+  font-variation-settings: "opsz" 100;
+}
+.modal-close{
+  background: none; border: none; cursor: pointer;
+  color: var(--text-3); font-size: 24px; line-height: 1;
+  padding: 4px 8px; border-radius: 8px;
+}
+.modal-close:hover{color: var(--text); background: var(--surface-2)}
+.modal-body{ padding: 4px 22px 8px }
+.modal-body p.intro{
+  font-size: 13px; color: var(--text-2); line-height: 1.55;
+  margin-bottom: 1rem;
+}
+.field{ margin-bottom: 1rem }
+.field label{
+  display: block; font-size: 12px; font-weight: 500;
+  color: var(--text-2); margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+.field input, .field textarea, .field select{
+  width: 100%;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 11px 14px;
+  font-family: var(--font-body); font-size: 14px;
+  color: var(--text); outline: none;
+  transition: all .15s;
+  -webkit-appearance: none;
+}
+.field input:focus, .field textarea:focus, .field select:focus{
+  border-color: var(--sage);
+  box-shadow: 0 0 0 3px var(--sage-tint);
+  background: var(--surface);
+}
+.field input.invalid, .field textarea.invalid{
+  border-color: var(--terra);
+  box-shadow: 0 0 0 3px var(--terra-tint);
+}
+.field-hint{
+  font-size: 11px; color: var(--text-3); margin-top: 5px;
+  font-family: var(--font-mono);
+}
+.field-hint.match{ color: var(--sage-deep) }
+.field-hint.error{ color: var(--terra-deep) }
+.modal-footer{
+  padding: 12px 22px 20px;
+  display: flex; align-items: center; gap: 10px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+.modal-footer.with-delete{ justify-content: space-between }
+.btn{
+  font-family: var(--font-body); font-size: 13px; font-weight: 500;
+  padding: 10px 18px; border-radius: 10px;
+  cursor: pointer; transition: all .15s ease;
+  border: 1px solid transparent;
+  letter-spacing: 0.01em;
+}
+.btn-primary{ background: var(--sage); color: #fff }
+.btn-primary:hover{ background: var(--sage-deep); box-shadow: 0 2px 8px rgba(122,145,104,0.3) }
+.btn-text{
+  background: transparent; color: var(--text-2);
+  border: 1px solid var(--border);
+}
+.btn-text:hover{ background: var(--surface-2); color: var(--text); border-color: var(--border-2) }
+.btn-danger{
+  background: transparent; color: var(--terra-deep);
+  border: 1px solid var(--terra);
+}
+.btn-danger:hover{ background: var(--terra); color: #fff }
+.btn:disabled{ opacity: .5; cursor: not-allowed }
+.btn:disabled:hover{ transform: none; box-shadow: none }
+
+/* ── Backup-Modus inside the modal ───────────────────────────── */
+.backup-actions{
+  display: grid; gap: 10px; margin-bottom: 1rem;
+}
+.backup-row{
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+  gap: 10px;
+}
+.backup-row .row-text{ flex: 1; min-width: 0 }
+.backup-row .row-text strong{
+  display: block; font-size: 13px; color: var(--text);
+  font-weight: 500; margin-bottom: 2px;
+}
+.backup-row .row-text span{ font-size: 11px; color: var(--text-3); line-height: 1.4 }
+.backup-row .btn{ flex-shrink: 0; padding: 8px 12px; font-size: 12px }
+
+/* ── Toast ────────────────────────────────────────────────────── */
+.toast{
+  position: fixed; left: 50%; bottom: 24px;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--text); color: var(--surface);
+  font-family: var(--font-body); font-size: 13px; font-weight: 500;
+  padding: 11px 18px; border-radius: 100px;
+  box-shadow: var(--shadow-deep);
+  opacity: 0; pointer-events: none;
+  transition: all .25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 200;
+  max-width: 90%;
+}
+.toast.show{
+  opacity: 1; transform: translateX(-50%) translateY(0);
+}
+.toast.sage{ background: var(--sage-deep) }
+.toast.terra{ background: var(--terra-deep) }
+
+/* ── Scrollbar ────────────────────────────────────────────────── */
+::-webkit-scrollbar{width: 8px; height: 8px}
+::-webkit-scrollbar-track{background: transparent}
+::-webkit-scrollbar-thumb{background: var(--border-2); border-radius: 4px}
+::-webkit-scrollbar-thumb:hover{background: var(--text-3)}
+
+/* ── Responsive ───────────────────────────────────────────────── */
+@media (max-width: 480px){
+  .app{padding: 1rem 1rem 4rem}
+  .result-card{ grid-template-columns: 60px 1fr auto; gap: 10px; padding: 11px 12px }
+  .copy-btn{display: none}
+  .order-tab .tab-sub{display: none}
+  .filter-pills{justify-content: flex-start}
+  .brand h1{font-size: 48px}
+  .modal-card{ border-radius: 14px }
+  .modal-header h2{ font-size: 20px }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- App bar -->
+  <div class="app-bar">
+    <div class="app-status" id="appStatus" title="Verbindungsstatus">
+      <span class="status-dot"></span>
+      <span id="appStatusText">Online</span>
+    </div>
+    <div class="toolbar-actions">
+      <button class="icon-btn" id="backupBtn" type="button" title="Backup / Wiederherstellen" aria-label="Backup">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+      </button>
+      <button class="install-btn" id="installBtn" type="button" aria-label="App installieren">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>Installieren</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- iOS hint -->
+  <div class="ios-hint" id="iosHint">
+    <button class="ios-close" id="iosClose" aria-label="Schließen">×</button>
+    <strong>📱 Auf dem Homescreen installieren:</strong><br>
+    Tippe unten auf <kbd>Teilen</kbd> ⬆ und dann auf <kbd>Zum Home-Bildschirm</kbd>.
+  </div>
+
+  <!-- Update banner -->
+  <div class="update-banner" id="updateBanner">
+    <span>Eine neue Version ist verfügbar.</span>
+    <button id="updateBtn" type="button">Aktualisieren</button>
+  </div>
+
+  <!-- Brand -->
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <!-- Inline leaf logo -->
+      <svg viewBox="0 0 36 44" xmlns="http://www.w3.org/2000/svg">
+        <g transform="rotate(-12 18 22)">
+          <path d="M18 4 C 26 11, 27 28, 18 40 C 9 28, 10 11, 18 4 Z" fill="#7a9168"/>
+          <line x1="18" y1="6" x2="18" y2="38" stroke="#5d7a4d" stroke-width="1.4" stroke-linecap="round"/>
+        </g>
+      </svg>
+    </div>
+    <h1>L<em>a</em>czy</h1>
+    <div class="brand-tagline">
+      <span>QNG-Baustoffsuche</span>
+      <span class="sep">·</span>
+      <span>Sprich oder tippe</span>
+    </div>
+  </div>
+
+  <!-- Order toggle -->
+  <div class="order-toggle" role="tablist">
+    <button class="order-tab active" data-order="1" id="tab1">
+      <span class="tab-label">Standard</span>
+      <span class="tab-sub">QNG · 388</span>
+    </button>
+    <button class="order-tab" data-order="2" id="tab2">
+      <span class="tab-label">Eigene</span>
+      <span class="tab-sub">+ Hersteller · <span id="customCount">0</span></span>
+    </button>
+    <button class="order-tab" data-order="all" id="tabAll">
+      <span class="tab-label">Alles</span>
+      <span class="tab-sub">kombiniert</span>
+    </button>
+  </div>
+
+  <div id="noSupport" class="no-support">
+    Spracherkennung nicht verfügbar. Bitte Chrome, Edge oder Safari verwenden — Texteingabe funktioniert überall.
+  </div>
+
+  <!-- Mic -->
+  <div class="mic-section">
+    <div class="mic-ring" id="micRing">
+      <button class="mic-btn" id="micBtn" aria-label="Mikrofon">
+        <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+        <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+      </button>
+    </div>
+    <div class="live-bar" id="liveBar">
+      <span class="live-dot"></span>
+      <span class="live-text" id="liveText">Bereit</span>
+    </div>
+    <div class="status-text" id="statusText">Mikrofon drücken um Dauerhören zu starten</div>
+  </div>
+
+  <!-- Search -->
+  <div class="search-wrap">
+    <span class="search-icon">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    </span>
+    <input type="text" class="search-input" id="searchInput" placeholder='Suche: „Holz", „Beton", „Fenster", „5.45" …' autocomplete="off" spellcheck="false">
+    <button class="search-clear" id="clearBtn" aria-label="Löschen">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+
+  <div class="stats-bar">
+    <div class="stats-count" id="statsCount"></div>
+    <button class="add-mat-btn" id="addMatBtn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <span>Eigenes Material</span>
+    </button>
+  </div>
+
+  <div class="filter-pills" id="filterPills"></div>
+  <div class="results" id="results"></div>
+
+  <div class="source-note">
+    Quelle: QNG-Rechenwerte 2023 v1.3 · BBSR / Ökobaudat
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────────
+     MODALS
+     ───────────────────────────────────────────────────────────── -->
+
+<div class="modal" id="matModal" aria-hidden="true" role="dialog">
+  <div class="modal-overlay" data-close></div>
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 id="matModalTitle">Eigenes Material</h2>
+      <button class="modal-close" data-close aria-label="Schließen">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="intro">Lege ein eigenes Material an und ordne es einem QNG-Code zu. Es erscheint dann in <strong>Eigene</strong>.</p>
+
+      <div class="field">
+        <label for="newName">Material-Bezeichnung</label>
+        <input type="text" id="newName" placeholder="z.B. „Schöck Isokorb XT"" maxlength="120" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label for="newCode">QNG-Code (zugeordneter Standard-Eintrag)</label>
+        <input type="text" id="newCode" placeholder="z.B. 5.45" autocomplete="off" list="codeList">
+        <datalist id="codeList"></datalist>
+        <div class="field-hint" id="newCodeHint">Tippe Nummer oder Name. Auto-Vervollständigung.</div>
+      </div>
+
+      <div class="field">
+        <label for="newNote">Notiz (optional)</label>
+        <input type="text" id="newNote" placeholder="z.B. „Alternative bei Wärmebrücken"" maxlength="200" autocomplete="off">
+      </div>
+    </div>
+    <div class="modal-footer with-delete" id="matModalFooter">
+      <button class="btn btn-danger" id="deleteBtn" type="button" style="display:none">Löschen</button>
+      <div style="display:flex; gap:10px; margin-left:auto">
+        <button class="btn btn-text" data-close type="button">Abbrechen</button>
+        <button class="btn btn-primary" id="saveBtn" type="button">Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="backupModal" aria-hidden="true" role="dialog">
+  <div class="modal-overlay" data-close></div>
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Backup deiner Materialien</h2>
+      <button class="modal-close" data-close aria-label="Schließen">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="intro">Deine eigenen Materialien werden lokal in deinem Browser gespeichert. Damit nichts verloren geht: regelmäßig exportieren — und auf einem neuen Gerät einfach importieren.</p>
+
+      <div class="backup-actions">
+        <div class="backup-row">
+          <div class="row-text">
+            <strong>Exportieren</strong>
+            <span><span id="backupCount">0</span> eigene Materialien als JSON-Datei sichern</span>
+          </div>
+          <button class="btn btn-primary" id="exportBtn" type="button">Download</button>
+        </div>
+        <div class="backup-row">
+          <div class="row-text">
+            <strong>Importieren</strong>
+            <span>JSON-Datei einlesen. Achtung — bestehende Liste wird ersetzt.</span>
+          </div>
+          <button class="btn btn-text" id="importBtn" type="button">Datei wählen</button>
+          <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+        </div>
+        <div class="backup-row">
+          <div class="row-text">
+            <strong>Alle eigenen löschen</strong>
+            <span>Setzt deine Materialliste auf leer zurück.</span>
+          </div>
+          <button class="btn btn-danger" id="wipeBtn" type="button">Löschen</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-text" data-close type="button">Schließen</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
