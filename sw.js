@@ -2,7 +2,7 @@
 // Strategie: Cache-First für die App-Shell. Voll offline-fähig nach erstem Laden.
 // Cross-Origin-Anfragen werden auf eine explizite Whitelist beschränkt.
 
-const VERSION = 'laczy-v3.0.0';
+const VERSION = 'laczy-v4.2.0';
 const CACHE = `laczy-cache-${VERSION}`;
 
 // Alle für den Offline-Betrieb benötigten Dateien (Same-Origin).
@@ -15,7 +15,10 @@ const CORE_ASSETS = [
   './icon-512.png',
   './icon-512-maskable.png',
   './apple-touch-icon.png',
-  './favicon.png'
+  './favicon.png',
+  './detail-gs40-profil.jpg',
+  './detail-anschluss-vertikal.jpg',
+  './detail-anschluss-horizontal.jpg'
 ];
 
 // Cross-Origin-Whitelist — nur diese Hosts dürfen Inhalte liefern.

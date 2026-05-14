@@ -570,6 +570,57 @@ const resultsEl = $("results"), statsCount = $("statsCount"), filterPills = $("f
 const customCount = $("customCount");
 const toast = $("toast");
 
+// ════════════════════════════════════════════════════════════════════════════
+// NAVIGATION — multi-screen shell (home + tool screens)
+// ════════════════════════════════════════════════════════════════════════════
+// Allowed screen names — keep tight; never derive from user input
+const VALID_SCREENS = new Set(["home", "search", "gutter", "sill", "statics"]);
+let currentScreen = "home";
+
+const backBtn = $("backBtn");
+const appbarBrand = $("appbarBrand");
+
+function navigateTo(name){
+  // Reject anything that isn't on the whitelist — defensive against
+  // malformed dataset attributes or any external manipulation
+  if (!VALID_SCREENS.has(name)) name = "home";
+
+  // Close any open modals to avoid stale state
+  document.querySelectorAll('.modal.open').forEach(m => {
+    m.classList.remove("open");
+    m.setAttribute("aria-hidden", "true");
+  });
+
+  document.querySelectorAll(".screen").forEach(s => {
+    s.classList.toggle("active", s.dataset.screen === name);
+  });
+  currentScreen = name;
+
+  // App-bar adjustments: back button visible on tool screens, brand on tool screens
+  if (name === "home"){
+    backBtn.classList.remove("show");
+    appbarBrand.classList.remove("show");
+  } else {
+    backBtn.classList.add("show");
+    appbarBrand.classList.add("show");
+  }
+
+  // Scroll to top whenever a screen opens
+  window.scrollTo({top: 0, behavior: "instant" in window ? "instant" : "auto"});
+}
+
+// Wire home tool-cards (event delegation, CSP-safe)
+document.querySelectorAll(".tool-card").forEach(card => {
+  card.addEventListener("click", () => {
+    if (card.disabled) return;
+    const tool = card.dataset.tool;
+    navigateTo(tool);
+  });
+});
+
+// Back button → home
+backBtn.addEventListener("click", () => navigateTo("home"));
+
 // Order tabs
 document.querySelectorAll(".order-tab").forEach(tab => {
   tab.addEventListener("click", () => {
@@ -1299,6 +1350,1254 @@ if (!SR){
 
 // Init
 search();
+
+// ════════════════════════════════════════════════════════════════════════════
+// GUTTER CALCULATOR — Regenrinne & Fallrohr (Titanzink / Kupfer)
+// ════════════════════════════════════════════════════════════════════════════
+// Sources:
+//   DIN EN 612  — Halbrunde Hängedachrinnen und Regenfallrohre (Zuschnittsbreite)
+//   DIN EN 988  — Titanzink, ρ = 7,2 g/cm³ (NedZink / Rheinzink Datenblätter)
+//   Kupfer ρ = 8,93 g/cm³ (Industrie-Standardwert)
+//
+// Formel Rinne (halbrund, „halbes Rohr"):
+//   m [kg] = Zuschnittsbreite [m] × Wandstärke [m] × Dichte [kg/m³] × Länge [m]
+// Formel Fallrohr (rund, voll):
+//   m [kg] = π × Außendurchmesser [m] × Wandstärke [m] × Dichte [kg/m³] × Länge [m]
+//   (dünnwandige Näherung: Mantelfläche ≈ π·D·t)
+
+const GUTTER_DEFAULTS = {
+  // Nenngröße → { Zuschnittsbreite mm, Wandst. Zink mm, Wandst. Kupfer mm, empf. Fallrohr-Ø mm }
+  "DN 80":  { cutWidth: 200, zinkT: 0.65, kupferT: 0.60, pipeDN: 60  },
+  "DN 100": { cutWidth: 250, zinkT: 0.65, kupferT: 0.60, pipeDN: 80  },
+  "DN 125": { cutWidth: 285, zinkT: 0.70, kupferT: 0.60, pipeDN: 87  },
+  "DN 150": { cutWidth: 333, zinkT: 0.70, kupferT: 0.60, pipeDN: 100 },
+  "DN 200": { cutWidth: 400, zinkT: 0.80, kupferT: 0.70, pipeDN: 120 },
+  "DN 250": { cutWidth: 500, zinkT: 0.80, kupferT: 0.70, pipeDN: 150 }
+};
+const GUTTER_DENSITY = { zink: 7200, kupfer: 8930 }; // kg/m³
+const GUTTER_QNG = {
+  zink:   { code: "2.11", name: "Zinkblech",  missing: false },
+  kupfer: { code: null,   name: "Kupfer — kein QNG-Eintrag", missing: true }
+};
+
+// State
+let gutterState = { material: "zink", size: "DN 100", pipeSize: "80" };
+
+// Refs (named to avoid collisions with the search-screen variables)
+const gMaterialCards = document.querySelectorAll('.material-card[data-material]');
+const gDensity      = $("gutterDensity");
+const gDensityReset = $("gutterDensityReset");
+const gKupferHint   = $("gutterKupferHint");
+const gSize         = $("gutterSize");
+const gCutWidth     = $("gutterCutWidth");
+const gThickness    = $("gutterThickness");
+const gLength       = $("gutterLength");
+const pSize         = $("pipeSize");
+const pDiameter     = $("pipeDiameter");
+const pThickness    = $("pipeThickness");
+const pLength       = $("pipeLength");
+const gResult       = $("gutterResult");
+const pResult       = $("pipeResult");
+const gTotal        = $("gutterTotal");
+const gEpd          = $("gutterEpd");
+const gEpdCode      = $("gutterEpdCode");
+const gEpdCopy      = $("gutterEpdCopy");
+const gMaterialLbl  = $("gutterMaterialLabel");
+const gResetAll     = $("gutterReset");
+
+// Number formatters — German locale
+function fmtN(n, decimals){
+  if (n === null || n === undefined || !isFinite(n)) return "—";
+  return n.toLocaleString("de-DE", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  });
+}
+function fmtUpto(n, max){
+  if (n === null || n === undefined || !isFinite(n)) return "—";
+  return n.toLocaleString("de-DE", { maximumFractionDigits: max });
+}
+
+// Parse a German-style number from a text input (accepts "," and ".").
+// Returns finite non-negative number, or null on invalid.
+// Hard upper bound 1e6 — anything beyond that is almost certainly a typo
+// and we don't want to render absurd values that suggest false precision.
+function parseDE(text){
+  if (typeof text !== "string") return null;
+  const s = text.trim().replace(/\s/g, "").replace(",", ".");
+  if (!s) return null;
+  if (!/^[0-9]+(\.[0-9]+)?$/.test(s)) return null;
+  const n = parseFloat(s);
+  if (!isFinite(n) || n < 0 || n > 1_000_000) return null;
+  return n;
+}
+
+// Default helpers
+function defThicknessNow(){
+  const sz = GUTTER_DEFAULTS[gutterState.size] || GUTTER_DEFAULTS["DN 100"];
+  return gutterState.material === "kupfer" ? sz.kupferT : sz.zinkT;
+}
+function defCutWidth(){
+  return (GUTTER_DEFAULTS[gutterState.size] || GUTTER_DEFAULTS["DN 100"]).cutWidth;
+}
+function defPipeDia(){
+  const n = parseFloat(gutterState.pipeSize);
+  return isFinite(n) && n > 0 ? n : 80;
+}
+function defDensity(){
+  return GUTTER_DENSITY[gutterState.material];
+}
+
+// DOM helpers — no innerHTML for derived data (CSP-safe, XSS-safe by construction)
+function clearChildren(el){ while (el.firstChild) el.removeChild(el.firstChild); }
+function calcLine(parent, text, cls){
+  const div = document.createElement("div");
+  div.className = "calc-line" + (cls ? " " + cls : "");
+  div.textContent = text;
+  parent.appendChild(div);
+}
+
+// State transitions ─────────────────────────────────────────────
+function setGutterMaterial(mat){
+  if (mat !== "zink" && mat !== "kupfer") return;
+  const prevMat = gutterState.material;
+  gutterState.material = mat;
+
+  gMaterialCards.forEach(c => {
+    c.classList.toggle("active", c.dataset.material === mat);
+    c.classList.toggle("copper", mat === "kupfer" && c.dataset.material === "kupfer");
+  });
+
+  // Carry user edits across: only overwrite a field whose value still equals
+  // the PREVIOUS material's default (= user has not customized it).
+  // This way, custom inputs are preserved when switching materials.
+  const prevDens = GUTTER_DENSITY[prevMat];
+  if (parseDE(gDensity.value) === prevDens){
+    gDensity.value = String(defDensity());
+  }
+  const sz = GUTTER_DEFAULTS[gutterState.size];
+  const prevT = prevMat === "zink" ? sz.zinkT : sz.kupferT;
+  if (parseDE(gThickness.value) === prevT){
+    gThickness.value = String(defThicknessNow()).replace(".", ",");
+  }
+  if (parseDE(pThickness.value) === prevT){
+    pThickness.value = String(defThicknessNow()).replace(".", ",");
+  }
+
+  gKupferHint.classList.toggle("show", mat === "kupfer");
+  gMaterialLbl.textContent = mat === "zink" ? "Titanzink" : "Kupfer";
+  recomputeGutter();
+}
+
+function setGutterSize(name){
+  if (!GUTTER_DEFAULTS[name]) return;
+  gutterState.size = name;
+  const def = GUTTER_DEFAULTS[name];
+  // On size change we always reset cutWidth + thicknesses, since size IS the choice
+  gCutWidth.value  = String(def.cutWidth);
+  gThickness.value = String(defThicknessNow()).replace(".", ",");
+  pSize.value      = String(def.pipeDN);
+  setPipeSize(String(def.pipeDN));
+}
+
+function setPipeSize(val){
+  gutterState.pipeSize = val;
+  pDiameter.value = val;
+  pThickness.value = String(defThicknessNow()).replace(".", ",");
+  recomputeGutter();
+}
+
+// Core calculation + render ─────────────────────────────────────
+function recomputeGutter(){
+  const dens = parseDE(gDensity.value);
+  const cutW = parseDE(gCutWidth.value);
+  const gT   = parseDE(gThickness.value);
+  const gL   = parseDE(gLength.value);
+  const pD   = parseDE(pDiameter.value);
+  const pT   = parseDE(pThickness.value);
+  const pL   = parseDE(pLength.value);
+
+  // Visual validity (only mark when not empty)
+  const pairs = [
+    [gDensity, dens], [gCutWidth, cutW], [gThickness, gT],
+    [pDiameter, pD], [pThickness, pT],
+    [gLength, gL], [pLength, pL]
+  ];
+  for (const [el, v] of pairs){
+    el.classList.toggle("invalid", el.value !== "" && v === null);
+  }
+
+  // ── Regenrinne
+  clearChildren(gResult);
+  let gMass = null;
+  if (dens !== null && cutW !== null && gT !== null && gL !== null && gL > 0){
+    const b_m = cutW / 1000, t_m = gT / 1000;
+    gMass = b_m * t_m * dens * gL;
+    calcLine(gResult, "Zuschnittsbreite × Wandstärke × Dichte × Länge", "formula");
+    calcLine(gResult,
+      fmtUpto(b_m, 4) + " m × " +
+      fmtUpto(t_m, 5) + " m × " +
+      fmtN(dens, 0) + " kg/m³ × " +
+      fmtUpto(gL, 2) + " m",
+      "formula");
+    calcLine(gResult,
+      "= " + fmtN(gMass, 2) + " kg  (≙ " + fmtN(gMass / gL, 3) + " kg/m)",
+      "subtotal");
+  } else if (gL === 0){
+    calcLine(gResult, "— Laufmeter Rinne = 0", "error");
+  } else {
+    calcLine(gResult, "— Bitte Werte eintragen", "error");
+  }
+
+  // ── Fallrohr (dünnwandige Näherung: A_mantel ≈ π × D × t)
+  clearChildren(pResult);
+  let pMass = null;
+  if (dens !== null && pD !== null && pT !== null && pL !== null && pL > 0){
+    const d_m = pD / 1000, t_m = pT / 1000;
+    pMass = Math.PI * d_m * t_m * dens * pL;
+    calcLine(pResult, "π × Außendurchmesser × Wandstärke × Dichte × Länge", "formula");
+    calcLine(pResult,
+      "π × " +
+      fmtUpto(d_m, 4) + " m × " +
+      fmtUpto(t_m, 5) + " m × " +
+      fmtN(dens, 0) + " kg/m³ × " +
+      fmtUpto(pL, 2) + " m",
+      "formula");
+    calcLine(pResult,
+      "= " + fmtN(pMass, 2) + " kg  (≙ " + fmtN(pMass / pL, 3) + " kg/m)",
+      "subtotal");
+  } else if (pL === 0){
+    calcLine(pResult, "— Laufmeter Fallrohr = 0", "error");
+  } else {
+    calcLine(pResult, "— Bitte Werte eintragen", "error");
+  }
+
+  // ── Gesamt
+  const total = (gMass || 0) + (pMass || 0);
+  clearChildren(gTotal);
+  const tNode = document.createTextNode(
+    (gMass === null && pMass === null) ? "— " : fmtN(total, 2) + " "
+  );
+  gTotal.appendChild(tNode);
+  const u = document.createElement("span");
+  u.className = "unit"; u.textContent = "kg";
+  gTotal.appendChild(u);
+
+  // ── EPD block
+  const epd = GUTTER_QNG[gutterState.material];
+  clearChildren(gEpdCode);
+  if (epd.missing){
+    gEpd.classList.add("calc-epd-missing");
+    gEpdCode.appendChild(document.createTextNode("kein direkter Eintrag"));
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = "Kupfer ist nicht in QNG 2023 v1.3 — in EcoCad Ökobaudat-Prozessdatensatz „Kupferband / Kupferblech“ zuweisen";
+    gEpdCode.appendChild(name);
+    gEpdCopy.style.display = "none";
+  } else {
+    gEpd.classList.remove("calc-epd-missing");
+    gEpdCode.appendChild(document.createTextNode(epd.code + "  "));
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = epd.name;
+    gEpdCode.appendChild(name);
+    gEpdCopy.style.display = "";
+    gEpdCopy.textContent = "Kopieren";
+    gEpdCopy.classList.remove("copied");
+  }
+}
+
+// Wire up ────────────────────────────────────────────────────────
+gMaterialCards.forEach(c => {
+  c.addEventListener("click", () => setGutterMaterial(c.dataset.material));
+});
+
+gSize.addEventListener("change", () => setGutterSize(gSize.value));
+pSize.addEventListener("change", () => setPipeSize(pSize.value));
+
+[gDensity, gCutWidth, gThickness, gLength, pDiameter, pThickness, pLength].forEach(el => {
+  el.addEventListener("input", recomputeGutter);
+});
+
+// Per-field reset buttons
+gDensityReset.addEventListener("click", () => {
+  gDensity.value = String(defDensity());
+  recomputeGutter();
+});
+document.querySelectorAll("[data-reset]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const target = btn.dataset.reset;
+    if (target === "gutterCutWidth"){
+      gCutWidth.value = String(defCutWidth());
+    } else if (target === "gutterThickness"){
+      gThickness.value = String(defThicknessNow()).replace(".", ",");
+    } else if (target === "pipeDiameter"){
+      pDiameter.value = String(defPipeDia());
+    } else if (target === "pipeThickness"){
+      pThickness.value = String(defThicknessNow()).replace(".", ",");
+    }
+    recomputeGutter();
+  });
+});
+
+// Copy EPD code
+gEpdCopy.addEventListener("click", () => {
+  const epd = GUTTER_QNG[gutterState.material];
+  if (epd.missing || !epd.code) return;
+  if (!navigator.clipboard){
+    showToast(epd.code + " (Kopieren nicht unterstützt)", "terra");
+    return;
+  }
+  navigator.clipboard.writeText(epd.code).then(() => {
+    gEpdCopy.textContent = "✓ kopiert";
+    gEpdCopy.classList.add("copied");
+    setTimeout(() => {
+      gEpdCopy.textContent = "Kopieren";
+      gEpdCopy.classList.remove("copied");
+    }, 1500);
+  }).catch(() => {
+    showToast("Kopieren fehlgeschlagen", "terra");
+  });
+});
+
+// Reset all
+gResetAll.addEventListener("click", () => {
+  if (!confirm("Alle Eingaben zurücksetzen?")) return;
+  gutterState = { material: "zink", size: "DN 100", pipeSize: "80" };
+  // Explicit, deterministic reset — bypass the carry-over logic of
+  // setGutterMaterial(), since here we WANT a hard reset to defaults.
+  gMaterialCards.forEach(c => {
+    c.classList.toggle("active", c.dataset.material === "zink");
+    c.classList.remove("copper");
+  });
+  gKupferHint.classList.remove("show");
+  gMaterialLbl.textContent = "Titanzink";
+  gSize.value      = "DN 100";
+  gCutWidth.value  = String(GUTTER_DEFAULTS["DN 100"].cutWidth);
+  gThickness.value = String(GUTTER_DEFAULTS["DN 100"].zinkT).replace(".", ",");
+  gDensity.value   = String(GUTTER_DENSITY.zink);
+  pSize.value      = "80";
+  pDiameter.value  = "80";
+  pThickness.value = String(GUTTER_DEFAULTS["DN 100"].zinkT).replace(".", ",");
+  gLength.value    = "";
+  pLength.value    = "";
+  recomputeGutter();
+  showToast("Zurückgesetzt", "sage");
+});
+
+// Initial render
+recomputeGutter();
+
+// ════════════════════════════════════════════════════════════════════════════
+// SILL CALCULATOR — Fensterbänke (Alu außen / Holz innen)
+// ════════════════════════════════════════════════════════════════════════════
+// Sources:
+//   GUTMANN Katalog Aluminium Fensterbänke (GS40, EN AW-6060 T66)
+//   Standard-Bauteildetails Holzrahmenbau 24 cm
+//
+// Formel Alu außen ("gestrecktes Blech"):
+//   m [kg] = gestreckte Länge [m] × Stärke [m] × Dichte [kg/m³] × lfm [m]
+// Formel Holz innen (Volumen):
+//   V [m³] = Ausladung [m] × Dicke [m] × lfm [m]
+//
+// Defaults (justierbar in jedem Feld via Reset-Button):
+//   gestreckte Länge außen: 250 mm
+//   Materialstärke Alu:     2.0 mm (GS40 Standard)
+//   Dichte Aluminium:       2700 kg/m³ (EN AW-6060 T66)
+//   Ausladung innen:        175 mm
+//   Stärke Holz:            20 / 25 mm Auswahl, optional frei
+
+const SILL_DEFAULTS = {
+  aluLength:     250,    // mm
+  aluThickness:  2.0,    // mm
+  aluDensity:    2700,   // kg/m³
+  woodLength:    175     // mm
+};
+const SILL_QNG = {
+  alu:  { code: "2.15", name: "Aluminium Profil" },
+  wood: { code: "3.1",  name: "Hobelware (Durchschnitt DE)" }
+};
+
+// State
+let sillState = { woodThickness: "20" };   // "20" | "25" | "free"
+
+// Refs
+const sAluLen        = $("sillAluLength");
+const sAluThick      = $("sillAluThickness");
+const sAluDens       = $("sillAluDensity");
+const sAluLfm        = $("sillAluRunning");
+const sWoodLen       = $("sillWoodLength");
+const sWoodLfm       = $("sillWoodRunning");
+const sWoodThickRow  = $("sillWoodThicknessCustomRow");
+const sWoodThickCust = $("sillWoodThicknessCustom");
+const sAluResult     = $("sillAluResult");
+const sWoodResult    = $("sillWoodResult");
+const sAluTotal      = $("sillAluTotal");
+const sWoodTotal     = $("sillWoodTotal");
+const sAluEpdCopy    = $("sillAluEpdCopy");
+const sWoodEpdCopy   = $("sillWoodEpdCopy");
+const sResetAll      = $("sillReset");
+
+// Bauteildetail lightbox refs
+const detailModal   = $("detailModal");
+const detailTitle   = $("detailTitle");
+const detailImage   = $("detailImage");
+const detailCaption = $("detailCaption");
+
+const DETAIL_INFO = {
+  profil: {
+    title: "GS40 — Aluminium-Fensterbank, Profilzeichnung",
+    src:   "detail-gs40-profil.jpg",
+    cap:   "GUTMANN GS40, Ausladung 50–500 mm, Tropfkante 40 mm, Rückaufkantung 25 mm, Material EN AW-6060 T66"
+  },
+  vertikal: {
+    title: "Vertikalschnitt — Fenster-Einbau mit GS40 und Holz-Innenfensterbank",
+    src:   "detail-anschluss-vertikal.jpg",
+    cap:   "Holzrahmenbau 24 cm, Putzanschlussprofil, Gleitabschluss BF4006, luftdichter Anschluss werkseitig"
+  },
+  horizontal: {
+    title: "Horizontalschnitt — Leibungsdetail",
+    src:   "detail-anschluss-horizontal.jpg",
+    cap:   "Anschluss seitlich, Kompriband, luftdichte Abklebung werkseitig"
+  }
+};
+
+// Open lightbox for a given detail key
+function openDetail(key){
+  const info = DETAIL_INFO[key];
+  if (!info) return;
+  detailTitle.textContent = info.title;
+  detailImage.src = info.src;
+  detailImage.alt = info.title;
+  detailCaption.textContent = info.cap;
+  detailModal.classList.add("open");
+  detailModal.setAttribute("aria-hidden", "false");
+}
+
+// Wire detail thumbnails
+document.querySelectorAll("[data-detail]").forEach(btn => {
+  btn.addEventListener("click", () => openDetail(btn.dataset.detail));
+});
+
+// Reset helpers
+function setSillDefault(key){
+  if (key === "aluLength")    sAluLen.value   = String(SILL_DEFAULTS.aluLength);
+  if (key === "aluThickness") sAluThick.value = String(SILL_DEFAULTS.aluThickness).replace(".", ",");
+  if (key === "aluDensity")   sAluDens.value  = String(SILL_DEFAULTS.aluDensity);
+  if (key === "woodLength")   sWoodLen.value  = String(SILL_DEFAULTS.woodLength);
+}
+
+document.querySelectorAll("[data-sill-reset]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    setSillDefault(btn.dataset.sillReset);
+    recomputeSill();
+  });
+});
+
+// Wood-thickness option selector
+document.querySelectorAll("[data-wood-thickness]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const v = btn.dataset.woodThickness;
+    if (v !== "20" && v !== "25" && v !== "free") return;
+    sillState.woodThickness = v;
+    document.querySelectorAll("[data-wood-thickness]").forEach(b => {
+      b.classList.toggle("active", b.dataset.woodThickness === v);
+    });
+    sWoodThickRow.style.display = (v === "free") ? "" : "none";
+    if (v === "free"){
+      // focus the input after a tick so the layout has settled
+      setTimeout(() => sWoodThickCust.focus(), 50);
+    }
+    recomputeSill();
+  });
+});
+
+// What thickness (in mm) is currently selected for wood
+function currentWoodThicknessMm(){
+  if (sillState.woodThickness === "20") return 20;
+  if (sillState.woodThickness === "25") return 25;
+  return parseDE(sWoodThickCust.value);  // may be null
+}
+
+// Re-render all sill results
+function recomputeSill(){
+  // ── A: Alu außen
+  const aLen   = parseDE(sAluLen.value);
+  const aThick = parseDE(sAluThick.value);
+  const aDens  = parseDE(sAluDens.value);
+  const aLfm   = parseDE(sAluLfm.value);
+
+  [
+    [sAluLen, aLen], [sAluThick, aThick],
+    [sAluDens, aDens], [sAluLfm, aLfm]
+  ].forEach(([el, v]) => {
+    el.classList.toggle("invalid", el.value !== "" && v === null);
+  });
+
+  clearChildren(sAluResult);
+  let aMass = null;
+  if (aLen !== null && aThick !== null && aDens !== null && aLfm !== null && aLfm > 0){
+    const len_m = aLen / 1000, t_m = aThick / 1000;
+    aMass = len_m * t_m * aDens * aLfm;
+    calcLine(sAluResult, "gestreckte Länge × Stärke × Dichte × Laufmeter", "formula");
+    calcLine(sAluResult,
+      fmtUpto(len_m, 4) + " m × " +
+      fmtUpto(t_m, 4) + " m × " +
+      fmtN(aDens, 0) + " kg/m³ × " +
+      fmtUpto(aLfm, 2) + " m",
+      "formula");
+    calcLine(sAluResult,
+      "= " + fmtN(aMass, 2) + " kg  (≙ " + fmtN(aMass / aLfm, 3) + " kg/m)",
+      "subtotal");
+  } else if (aLfm === 0){
+    calcLine(sAluResult, "— Laufmeter = 0", "error");
+  } else {
+    calcLine(sAluResult, "— Bitte Werte eintragen", "error");
+  }
+  clearChildren(sAluTotal);
+  sAluTotal.appendChild(document.createTextNode(aMass === null ? "— " : fmtN(aMass, 2) + " "));
+  const ua = document.createElement("span"); ua.className = "unit"; ua.textContent = "kg";
+  sAluTotal.appendChild(ua);
+
+  // ── B: Holz innen (Volumen)
+  const wLen   = parseDE(sWoodLen.value);
+  const wThick = currentWoodThicknessMm();
+  const wLfm   = parseDE(sWoodLfm.value);
+
+  sWoodLen.classList.toggle("invalid", sWoodLen.value !== "" && wLen === null);
+  sWoodLfm.classList.toggle("invalid", sWoodLfm.value !== "" && wLfm === null);
+  if (sillState.woodThickness === "free"){
+    sWoodThickCust.classList.toggle("invalid",
+      sWoodThickCust.value !== "" && wThick === null);
+  }
+
+  clearChildren(sWoodResult);
+  let wVol = null;
+  if (wLen !== null && wThick !== null && wThick > 0 && wLfm !== null && wLfm > 0){
+    const len_m = wLen / 1000, t_m = wThick / 1000;
+    wVol = len_m * t_m * wLfm;
+    calcLine(sWoodResult, "Ausladung × Dicke × Laufmeter", "formula");
+    calcLine(sWoodResult,
+      fmtUpto(len_m, 4) + " m × " +
+      fmtUpto(t_m, 4) + " m × " +
+      fmtUpto(wLfm, 2) + " m",
+      "formula");
+    // Provide both m³ and dm³ (= Liter) — small volumes are easier to read as dm³
+    const vol_dm3 = wVol * 1000;
+    calcLine(sWoodResult,
+      "= " + fmtN(wVol, 5) + " m³  (≙ " + fmtN(vol_dm3, 2) + " dm³)",
+      "subtotal");
+  } else if (wLfm === 0){
+    calcLine(sWoodResult, "— Laufmeter = 0", "error");
+  } else if (sillState.woodThickness === "free" && wThick === null){
+    calcLine(sWoodResult, "— Bitte eigene Dicke eintragen", "error");
+  } else {
+    calcLine(sWoodResult, "— Bitte Werte eintragen", "error");
+  }
+  clearChildren(sWoodTotal);
+  sWoodTotal.appendChild(document.createTextNode(wVol === null ? "— " : fmtN(wVol, 5) + " "));
+  const uw = document.createElement("span"); uw.className = "unit"; uw.textContent = "m³";
+  sWoodTotal.appendChild(uw);
+}
+
+// Inputs
+[sAluLen, sAluThick, sAluDens, sAluLfm,
+ sWoodLen, sWoodLfm, sWoodThickCust].forEach(el => {
+  el.addEventListener("input", recomputeSill);
+});
+
+// Copy EPD buttons
+function wireEpdCopy(btn, code){
+  btn.addEventListener("click", () => {
+    if (!navigator.clipboard){
+      showToast(code + " (Kopieren nicht unterstützt)", "terra");
+      return;
+    }
+    navigator.clipboard.writeText(code).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = "✓ kopiert";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = orig;
+        btn.classList.remove("copied");
+      }, 1500);
+    }).catch(() => {
+      showToast("Kopieren fehlgeschlagen", "terra");
+    });
+  });
+}
+wireEpdCopy(sAluEpdCopy,  SILL_QNG.alu.code);
+wireEpdCopy(sWoodEpdCopy, SILL_QNG.wood.code);
+
+// Reset all
+sResetAll.addEventListener("click", () => {
+  if (!confirm("Alle Fensterbank-Eingaben zurücksetzen?")) return;
+  setSillDefault("aluLength");
+  setSillDefault("aluThickness");
+  setSillDefault("aluDensity");
+  setSillDefault("woodLength");
+  sAluLfm.value = "";
+  sWoodLfm.value = "";
+  sWoodThickCust.value = "";
+  sillState.woodThickness = "20";
+  document.querySelectorAll("[data-wood-thickness]").forEach(b => {
+    b.classList.toggle("active", b.dataset.woodThickness === "20");
+  });
+  sWoodThickRow.style.display = "none";
+  recomputeSill();
+  showToast("Zurückgesetzt", "sage");
+});
+
+// Initial render
+recomputeSill();
+
+// ════════════════════════════════════════════════════════════════════════════
+// STATIK CALCULATOR — Stahlstützen / Stahlträger / Schwelle&Rähm / Pfetten
+// ════════════════════════════════════════════════════════════════════════════
+// Sources:
+//   DIN 1025-3 (HEA), DIN 1025-2 (HEB), DIN 1025-4 (HEM), DIN 1025-5 (IPE)
+//   EN 10365 (Nachfolgenorm) — Werte identisch für die hier gelisteten Profile
+//   Peiner Träger Tabellen (h, b, Profilgewicht)
+//
+// Formeln:
+//   Stahl:        m = Profilgewicht [kg/m] × Länge [m] × Anzahl
+//   Brandschutz:  m = Boxumfang [m] × Länge [m] × Anzahl × Lagen × Dicke [m] × Dichte [kg/m³]
+//                 Boxumfang 4-seitig: 2 × (h + b)
+//                 Boxumfang 3-seitig: h + 2b  (in Wand stehend, Steg parallel zur Wand)
+//   Holz Volumen: V = Breite [m] × Höhe [m] × Länge [m]
+//
+// Profilabmessungen (h, b in mm) und Profilgewicht (kg/m) je nach DIN.
+
+const STEEL_PROFILES = {
+  HEA: {
+    label: "HEA (DIN 1025-3) — leicht",
+    sizes: {
+      "100":  { weight: 16.7,  h: 96,   b: 100 },
+      "120":  { weight: 19.9,  h: 114,  b: 120 },
+      "140":  { weight: 24.7,  h: 133,  b: 140 },
+      "160":  { weight: 30.4,  h: 152,  b: 160 },
+      "180":  { weight: 35.5,  h: 171,  b: 180 },
+      "200":  { weight: 42.3,  h: 190,  b: 200 },
+      "220":  { weight: 50.5,  h: 210,  b: 220 },
+      "240":  { weight: 60.3,  h: 230,  b: 240 },
+      "260":  { weight: 68.2,  h: 250,  b: 260 },
+      "280":  { weight: 76.4,  h: 270,  b: 280 },
+      "300":  { weight: 88.3,  h: 290,  b: 300 },
+      "320":  { weight: 97.6,  h: 310,  b: 300 },
+      "340":  { weight: 104.8, h: 330,  b: 300 },
+      "360":  { weight: 112.1, h: 350,  b: 300 },
+      "400":  { weight: 124.8, h: 390,  b: 300 },
+      "450":  { weight: 139.8, h: 440,  b: 300 },
+      "500":  { weight: 155.1, h: 490,  b: 300 },
+      "550":  { weight: 166.2, h: 540,  b: 300 },
+      "600":  { weight: 177.8, h: 590,  b: 300 },
+      "650":  { weight: 190.0, h: 640,  b: 300 },
+      "700":  { weight: 204.0, h: 690,  b: 300 },
+      "800":  { weight: 224.0, h: 790,  b: 300 },
+      "900":  { weight: 252.0, h: 890,  b: 300 },
+      "1000": { weight: 272.0, h: 990,  b: 300 }
+    }
+  },
+  HEB: {
+    label: "HEB (DIN 1025-2) — mittel",
+    sizes: {
+      "100":  { weight: 20.4,  h: 100,  b: 100 },
+      "120":  { weight: 26.7,  h: 120,  b: 120 },
+      "140":  { weight: 33.7,  h: 140,  b: 140 },
+      "160":  { weight: 42.6,  h: 160,  b: 160 },
+      "180":  { weight: 51.2,  h: 180,  b: 180 },
+      "200":  { weight: 61.3,  h: 200,  b: 200 },
+      "220":  { weight: 71.5,  h: 220,  b: 220 },
+      "240":  { weight: 83.2,  h: 240,  b: 240 },
+      "260":  { weight: 93.0,  h: 260,  b: 260 },
+      "280":  { weight: 103,   h: 280,  b: 280 },
+      "300":  { weight: 117,   h: 300,  b: 300 },
+      "320":  { weight: 127,   h: 320,  b: 300 },
+      "340":  { weight: 134,   h: 340,  b: 300 },
+      "360":  { weight: 142,   h: 360,  b: 300 },
+      "400":  { weight: 155,   h: 400,  b: 300 },
+      "450":  { weight: 171,   h: 450,  b: 300 },
+      "500":  { weight: 187,   h: 500,  b: 300 },
+      "550":  { weight: 199,   h: 550,  b: 300 },
+      "600":  { weight: 212,   h: 600,  b: 300 },
+      "650":  { weight: 225,   h: 650,  b: 300 },
+      "700":  { weight: 241,   h: 700,  b: 300 },
+      "800":  { weight: 262,   h: 800,  b: 300 },
+      "900":  { weight: 291,   h: 900,  b: 300 },
+      "1000": { weight: 314,   h: 1000, b: 300 }
+    }
+  },
+  HEM: {
+    label: "HEM (DIN 1025-4) — verstärkt",
+    sizes: {
+      "100":  { weight: 41.8,  h: 120,  b: 106 },
+      "120":  { weight: 52.1,  h: 140,  b: 126 },
+      "140":  { weight: 63.2,  h: 160,  b: 146 },
+      "160":  { weight: 76.2,  h: 180,  b: 166 },
+      "180":  { weight: 88.9,  h: 200,  b: 186 },
+      "200":  { weight: 103.1, h: 220,  b: 206 },
+      "220":  { weight: 117.3, h: 240,  b: 226 },
+      "240":  { weight: 156.7, h: 270,  b: 248 },
+      "260":  { weight: 172.4, h: 290,  b: 268 },
+      "280":  { weight: 188.5, h: 310,  b: 288 },
+      "300":  { weight: 237.9, h: 340,  b: 310 },
+      "320":  { weight: 245.0, h: 359,  b: 309 },
+      "340":  { weight: 247.9, h: 377,  b: 309 },
+      "360":  { weight: 250.3, h: 395,  b: 308 },
+      "400":  { weight: 255.7, h: 432,  b: 307 },
+      "450":  { weight: 263.3, h: 478,  b: 307 },
+      "500":  { weight: 270.3, h: 524,  b: 306 },
+      "550":  { weight: 278.2, h: 572,  b: 306 },
+      "600":  { weight: 285.5, h: 620,  b: 305 },
+      "650":  { weight: 293.0, h: 668,  b: 305 },
+      "700":  { weight: 301.0, h: 716,  b: 304 },
+      "800":  { weight: 317.0, h: 814,  b: 303 },
+      "900":  { weight: 333.0, h: 910,  b: 302 },
+      "1000": { weight: 349.0, h: 1008, b: 302 }
+    }
+  },
+  IPE: {
+    label: "IPE (DIN 1025-5) — mittelbreit",
+    sizes: {
+      "80":   { weight: 6.0,   h: 80,   b: 46  },
+      "100":  { weight: 8.1,   h: 100,  b: 55  },
+      "120":  { weight: 10.4,  h: 120,  b: 64  },
+      "140":  { weight: 12.9,  h: 140,  b: 73  },
+      "160":  { weight: 15.8,  h: 160,  b: 82  },
+      "180":  { weight: 18.8,  h: 180,  b: 91  },
+      "200":  { weight: 22.4,  h: 200,  b: 100 },
+      "220":  { weight: 26.2,  h: 220,  b: 110 },
+      "240":  { weight: 30.7,  h: 240,  b: 120 },
+      "270":  { weight: 36.1,  h: 270,  b: 135 },
+      "300":  { weight: 42.2,  h: 300,  b: 150 },
+      "330":  { weight: 49.1,  h: 330,  b: 160 },
+      "360":  { weight: 57.1,  h: 360,  b: 170 },
+      "400":  { weight: 66.3,  h: 400,  b: 180 },
+      "450":  { weight: 77.6,  h: 450,  b: 190 },
+      "500":  { weight: 90.7,  h: 500,  b: 200 },
+      "550":  { weight: 106,   h: 550,  b: 210 },
+      "600":  { weight: 122,   h: 600,  b: 220 }
+    }
+  }
+};
+
+// Brandschutzplatten — Material-Eigenschaften und QNG-Zuordnung
+const BRAND_BOARDS = {
+  gkb: {
+    label: "Gipskartonplatte (GKF, Feuerschutz)",
+    density: 850,          // kg/m³ — typischer Wert für GKF
+    qng: { code: "7.24", name: "Gipskartonplatte (Feuerschutz)" },
+    thicknesses: ["12,5", "15", "18", "20", "25"]   // mm
+  },
+  gipsfaser: {
+    label: "Gipsfaserplatte",
+    density: 1180,         // kg/m³ — typischer Wert (Fermacell-Klasse)
+    qng: { code: "7.23", name: "Gipsfaserplatte" },
+    thicknesses: ["10", "12,5", "15", "18"]
+  }
+};
+
+// ────────────────────────────────────────────────────────────────
+// Statics navigation — sub-menu switch
+// ────────────────────────────────────────────────────────────────
+
+const VALID_STATICS = new Set(["menu", "stuetzen", "traeger", "schwelle", "pfetten"]);
+let staticsView = "menu";
+
+function setStaticsView(name){
+  if (!VALID_STATICS.has(name)) name = "menu";
+  staticsView = name;
+  const menu = $("staticsMenu");
+  menu.style.display = (name === "menu") ? "" : "none";
+  document.querySelectorAll("[data-stat-sub]").forEach(el => {
+    el.classList.toggle("active", el.dataset.statSub === name);
+  });
+}
+
+document.querySelectorAll("[data-statics]").forEach(card => {
+  card.addEventListener("click", () => setStaticsView(card.dataset.statics));
+});
+document.querySelectorAll("[data-stat-back]").forEach(btn => {
+  btn.addEventListener("click", () => setStaticsView("menu"));
+});
+
+// When the user goes Home and returns to Statics, reset to the menu.
+// Hook into the existing navigateTo by observing the back button click is
+// already triggered above; for completeness, reset on screen change too.
+const _origNavigateTo = navigateTo;
+navigateTo = function(name){
+  _origNavigateTo(name);
+  if (name === "statics") setStaticsView("menu");
+};
+
+// ────────────────────────────────────────────────────────────────
+// Steel calculators (Stützen + Träger share logic)
+// ────────────────────────────────────────────────────────────────
+
+// State per sub-section. Track active profile type and selected size.
+const steelState = {
+  stuetzen: { type: "HEA", size: "100", brandshow: false,
+              brand: { material: "gkb", layers: 1, thickness: 12.5, sides: 4 } },
+  traeger:  { type: "HEA", size: "100", brandshow: false,
+              brand: { material: "gkb", layers: 1, thickness: 12.5, sides: 4 } }
+};
+
+// Populate size dropdown for a given group, preserving valid current size
+function populateSizeDropdown(group){
+  const state = steelState[group];
+  const sel = $(group + "Size");
+  const sizes = STEEL_PROFILES[state.type].sizes;
+  // Wipe options
+  while (sel.firstChild) sel.removeChild(sel.firstChild);
+  for (const sz of Object.keys(sizes)){
+    const opt = document.createElement("option");
+    opt.value = sz;
+    opt.textContent = state.type + " " + sz +
+      "  (h=" + sizes[sz].h + ", b=" + sizes[sz].b + ", " + fmtN(sizes[sz].weight, 1) + " kg/m)";
+    sel.appendChild(opt);
+  }
+  // If current size doesn't exist for this profile, pick first
+  if (!sizes[state.size]){
+    state.size = Object.keys(sizes)[0];
+  }
+  sel.value = state.size;
+}
+
+// Render kg/m readout into the readonly field
+function syncWeightField(group){
+  const state = steelState[group];
+  const wEl = $(group + "Weight");
+  const w = STEEL_PROFILES[state.type].sizes[state.size]?.weight;
+  wEl.value = w !== undefined ? fmtN(w, 1).replace(".", ",") : "";
+}
+
+// Build the brand-protection inner UI for a given group, once.
+function buildBrandFields(group){
+  const container = $(group + "BrandFields");
+  clearChildren(container);
+  const state = steelState[group].brand;
+
+  // Material radio
+  const matRow = document.createElement("div");
+  matRow.className = "material-grid";
+  matRow.style.marginBottom = "10px";
+  for (const [key, def] of Object.entries(BRAND_BOARDS)){
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "material-card" + (state.material === key ? " active" : "");
+    btn.dataset.brandMat = key;
+    const label = document.createElement("span");
+    label.className = "material-card-label";
+    label.style.fontSize = "12px";
+    label.textContent = def.label;
+    btn.appendChild(label);
+    btn.addEventListener("click", () => {
+      state.material = key;
+      // If the chosen thickness isn't in the new material's list, snap to first
+      const allowed = BRAND_BOARDS[key].thicknesses.map(s => parseDE(s));
+      if (!allowed.includes(state.thickness)){
+        state.thickness = allowed[0];
+      }
+      buildBrandFields(group);
+      recomputeSteel(group);
+    });
+    matRow.appendChild(btn);
+  }
+  container.appendChild(matRow);
+
+  // Layers (1 / 2) + Sides (4 / 3) and Thickness in a compact grid
+  function makeOptionGrid(opts, currentVal, onPick){
+    const grid = document.createElement("div");
+    grid.className = "option-grid";
+    for (const o of opts){
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "option-card" + (o.value === currentVal ? " active" : "");
+      const main = document.createTextNode(o.label);
+      b.appendChild(main);
+      if (o.sub){
+        const s = document.createElement("span");
+        s.className = "sub";
+        s.textContent = o.sub;
+        b.appendChild(s);
+      }
+      b.addEventListener("click", () => onPick(o.value));
+      grid.appendChild(b);
+    }
+    return grid;
+  }
+
+  // Lagen
+  const layersHead = document.createElement("div");
+  layersHead.className = "calc-row-label";
+  layersHead.style.marginBottom = "6px";
+  layersHead.appendChild(document.createTextNode("Lagen"));
+  const sub1 = document.createElement("span"); sub1.className = "sub";
+  sub1.textContent = "Anzahl der Plattenlagen"; layersHead.appendChild(sub1);
+  container.appendChild(layersHead);
+  container.appendChild(makeOptionGrid(
+    [{value:1,label:"1-lagig"}, {value:2,label:"2-lagig"}, {value:3,label:"3-lagig"}],
+    state.layers,
+    v => { state.layers = v; buildBrandFields(group); recomputeSteel(group); }
+  ));
+
+  // Plattendicke
+  const tHead = document.createElement("div");
+  tHead.className = "calc-row-label";
+  tHead.style.margin = "10px 0 6px";
+  tHead.appendChild(document.createTextNode("Plattendicke"));
+  const sub2 = document.createElement("span"); sub2.className = "sub";
+  sub2.textContent = "je nach Material"; tHead.appendChild(sub2);
+  container.appendChild(tHead);
+  const tOpts = BRAND_BOARDS[state.material].thicknesses.map(s => {
+    const v = parseDE(s);
+    return { value: v, label: s, sub: "mm" };
+  });
+  container.appendChild(makeOptionGrid(
+    tOpts, state.thickness,
+    v => { state.thickness = v; buildBrandFields(group); recomputeSteel(group); }
+  ));
+
+  // Seiten
+  const sHead = document.createElement("div");
+  sHead.className = "calc-row-label";
+  sHead.style.margin = "10px 0 6px";
+  sHead.appendChild(document.createTextNode("Bekleidung"));
+  const sub3 = document.createElement("span"); sub3.className = "sub";
+  sub3.textContent = "Anzahl bekleideter Seiten"; sHead.appendChild(sub3);
+  container.appendChild(sHead);
+  container.appendChild(makeOptionGrid(
+    [{value:4,label:"4-seitig",sub:"Kasten"},
+     {value:3,label:"3-seitig",sub:"in Wand"}],
+    state.sides,
+    v => { state.sides = v; buildBrandFields(group); recomputeSteel(group); }
+  ));
+}
+
+function recomputeSteel(group){
+  const state = steelState[group];
+  const sizes = STEEL_PROFILES[state.type].sizes;
+  const profile = sizes[state.size];
+  const cnt    = parseDE($(group + "Count").value);
+  const length = parseDE($(group + "Length").value);
+
+  $(group + "Count").classList.toggle("invalid",
+    $(group + "Count").value !== "" && cnt === null);
+  $(group + "Length").classList.toggle("invalid",
+    $(group + "Length").value !== "" && length === null);
+
+  const steelResult = $(group + "SteelResult");
+  clearChildren(steelResult);
+  let steelMass = null;
+  if (profile && cnt !== null && cnt > 0 && length !== null && length > 0){
+    steelMass = profile.weight * length * cnt;
+    calcLine(steelResult, "Profilgewicht × Länge × Anzahl", "formula");
+    calcLine(steelResult,
+      fmtN(profile.weight, 1) + " kg/m × " +
+      fmtUpto(length, 2) + " m × " + cnt,
+      "formula");
+    calcLine(steelResult,
+      "= " + fmtN(steelMass, 2) + " kg",
+      "subtotal");
+  } else {
+    calcLine(steelResult, "— Anzahl und Länge eintragen", "error");
+  }
+  const steelTotal = $(group + "SteelTotal");
+  clearChildren(steelTotal);
+  steelTotal.appendChild(document.createTextNode(steelMass === null ? "— " : fmtN(steelMass, 2) + " "));
+  const u1 = document.createElement("span"); u1.className = "unit"; u1.textContent = "kg";
+  steelTotal.appendChild(u1);
+
+  // Brandschutz
+  const brandActive = state.brandshow;
+  const brandBlock = $(group + "BrandBlock");
+  const brandTot   = $(group + "BrandTotal");
+  const brandEpd   = $(group + "BrandEpd");
+  brandBlock.style.display = brandActive ? "" : "none";
+  brandTot.style.display   = brandActive ? "" : "none";
+  brandEpd.style.display   = brandActive ? "" : "none";
+
+  if (brandActive){
+    const b = state.brand;
+    const board = BRAND_BOARDS[b.material];
+    const brandResult = $(group + "BrandResult");
+    clearChildren(brandResult);
+
+    let brandMass = null;
+    if (profile && cnt !== null && cnt > 0 && length !== null && length > 0 &&
+        b.thickness > 0 && b.layers > 0){
+      const h_m = profile.h / 1000, b_m = profile.b / 1000;
+      const perim_m = (b.sides === 4) ? 2 * (h_m + b_m) : (h_m + 2 * b_m);
+      const t_m = b.thickness / 1000;
+      // Plattenfläche m² = Umfang × Länge × Anzahl × Lagen
+      const area = perim_m * length * cnt * b.layers;
+      brandMass = area * t_m * board.density;
+
+      calcLine(brandResult, board.label, "formula");
+      calcLine(brandResult,
+        "Umfang " + (b.sides === 4 ? "4-seitig" : "3-seitig") +
+        " = " + (b.sides === 4 ? "2 × (h + b)" : "h + 2b"),
+        "formula");
+      calcLine(brandResult,
+        (b.sides === 4
+          ? "2 × (" + profile.h + " + " + profile.b + ") = " + (2*(profile.h+profile.b)) + " mm"
+          : profile.h + " + 2 × " + profile.b + " = " + (profile.h+2*profile.b) + " mm"),
+        "formula");
+      calcLine(brandResult,
+        "Fläche = " + fmtUpto(perim_m, 4) + " m × " + fmtUpto(length, 2) +
+        " m × " + cnt + " × " + b.layers + " Lagen = " + fmtN(area, 2) + " m²",
+        "formula");
+      calcLine(brandResult,
+        "Gewicht = " + fmtN(area, 2) + " m² × " + fmtUpto(t_m, 4) +
+        " m × " + fmtN(board.density, 0) + " kg/m³",
+        "formula");
+      calcLine(brandResult,
+        "= " + fmtN(brandMass, 2) + " kg",
+        "subtotal");
+    } else {
+      calcLine(brandResult, "— Anzahl, Länge und Dicke eintragen", "error");
+    }
+
+    const totVal = $(group + "BrandTotalValue");
+    clearChildren(totVal);
+    totVal.appendChild(document.createTextNode(brandMass === null ? "— " : fmtN(brandMass, 2) + " "));
+    const u2 = document.createElement("span"); u2.className = "unit"; u2.textContent = "kg";
+    totVal.appendChild(u2);
+
+    // EPD update
+    const epdCode = $(group + "BrandEpdCode");
+    clearChildren(epdCode);
+    epdCode.appendChild(document.createTextNode(board.qng.code + "  "));
+    const epdName = document.createElement("span");
+    epdName.className = "name";
+    epdName.textContent = board.qng.name;
+    epdCode.appendChild(epdName);
+  }
+}
+
+// Wire up both Stahl-Subscreens
+function wireSteelGroup(group){
+  // Profile type cards
+  document.querySelectorAll(`[data-pgroup="${group}"] .profile-card`).forEach(card => {
+    card.addEventListener("click", () => {
+      const t = card.dataset.profileType;
+      if (!STEEL_PROFILES[t]) return;
+      steelState[group].type = t;
+      // Toggle active
+      document.querySelectorAll(`[data-pgroup="${group}"] .profile-card`).forEach(c => {
+        c.classList.toggle("active", c === card);
+      });
+      populateSizeDropdown(group);
+      syncWeightField(group);
+      recomputeSteel(group);
+    });
+  });
+
+  // Size dropdown
+  $(group + "Size").addEventListener("change", () => {
+    steelState[group].size = $(group + "Size").value;
+    syncWeightField(group);
+    recomputeSteel(group);
+  });
+
+  // Anzahl + Länge
+  $(group + "Count").addEventListener("input", () => recomputeSteel(group));
+  $(group + "Length").addEventListener("input", () => recomputeSteel(group));
+
+  // Brand toggle
+  const toggle = $(group + "BrandToggle");
+  toggle.addEventListener("change", () => {
+    steelState[group].brandshow = toggle.checked;
+    $(group + "BrandFields").classList.toggle("show", toggle.checked);
+    if (toggle.checked){
+      buildBrandFields(group);
+    }
+    recomputeSteel(group);
+  });
+
+  // Initial fill
+  populateSizeDropdown(group);
+  syncWeightField(group);
+  recomputeSteel(group);
+}
+wireSteelGroup("stuetzen");
+wireSteelGroup("traeger");
+
+// Reset buttons (Stützen / Träger)
+document.querySelectorAll("[data-stat-reset]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const g = btn.dataset.statReset;
+    if (g === "stuetzen" || g === "traeger"){
+      if (!confirm("Eingaben für " + (g === "stuetzen" ? "Stahlstützen" : "Stahlträger") + " zurücksetzen?")) return;
+      steelState[g] = {
+        type: "HEA", size: "100", brandshow: false,
+        brand: { material: "gkb", layers: 1, thickness: 12.5, sides: 4 }
+      };
+      // Reset UI
+      document.querySelectorAll(`[data-pgroup="${g}"] .profile-card`).forEach(c => {
+        c.classList.toggle("active", c.dataset.profileType === "HEA");
+      });
+      populateSizeDropdown(g);
+      syncWeightField(g);
+      $(g + "Count").value = "1";
+      $(g + "Length").value = "";
+      $(g + "BrandToggle").checked = false;
+      $(g + "BrandFields").classList.remove("show");
+      recomputeSteel(g);
+      showToast("Zurückgesetzt", "sage");
+    } else if (g === "schwelle"){
+      if (!confirm("Eingaben für Schwelle & Rähm zurücksetzen?")) return;
+      document.querySelector('[data-timber="schwelle:b"]').value = "8";
+      document.querySelector('[data-timber="schwelle:h"]').value = "24";
+      document.querySelector('[data-timber="schwelle:l"]').value = "";
+      document.querySelector('[data-timber="raehm:b"]').value = "8";
+      document.querySelector('[data-timber="raehm:h"]').value = "24";
+      document.querySelector('[data-timber="raehm:l"]').value = "";
+      recomputeTimber("schwelle");
+      showToast("Zurückgesetzt", "sage");
+    } else if (g === "pfetten"){
+      if (!confirm("Eingaben für Pfetten zurücksetzen?")) return;
+      document.querySelector('[data-timber="fuss:b"]').value = "20";
+      document.querySelector('[data-timber="fuss:h"]').value = "24";
+      document.querySelector('[data-timber="fuss:l"]').value = "";
+      document.querySelector('[data-timber="first:b"]').value = "20";
+      document.querySelector('[data-timber="first:h"]').value = "36";
+      document.querySelector('[data-timber="first:l"]').value = "";
+      recomputeTimber("pfetten");
+      showToast("Zurückgesetzt", "sage");
+    }
+  });
+});
+
+// ────────────────────────────────────────────────────────────────
+// Holz: Schwelle/Rähm & Pfetten — multi-row sections
+// ────────────────────────────────────────────────────────────────
+
+const TIMBER_SECTIONS = {
+  schwelle: {
+    rows: [
+      { key: "schwelle", label: "Schwelle" },
+      { key: "raehm",    label: "Rähm" }
+    ],
+    resultEl: "schwelleResult",
+    totalEl:  "schwelleTotal"
+  },
+  pfetten: {
+    rows: [
+      { key: "fuss",  label: "Fußpfette" },
+      { key: "first", label: "Firstpfette" }
+    ],
+    resultEl: "pfettenResult",
+    totalEl:  "pfettenTotal"
+  }
+};
+
+function getTimberInput(key, field){
+  return document.querySelector('[data-timber="' + key + ':' + field + '"]');
+}
+
+function recomputeTimber(section){
+  const def = TIMBER_SECTIONS[section];
+  const resEl = $(def.resultEl);
+  const totEl = $(def.totalEl);
+  clearChildren(resEl);
+
+  let grandTotal = 0;
+  let anyValid = false;
+
+  for (const r of def.rows){
+    const bEl = getTimberInput(r.key, "b");
+    const hEl = getTimberInput(r.key, "h");
+    const lEl = getTimberInput(r.key, "l");
+    const b = parseDE(bEl.value); const h = parseDE(hEl.value); const l = parseDE(lEl.value);
+
+    bEl.classList.toggle("invalid", bEl.value !== "" && b === null);
+    hEl.classList.toggle("invalid", hEl.value !== "" && h === null);
+    lEl.classList.toggle("invalid", lEl.value !== "" && l === null);
+
+    if (b !== null && h !== null && l !== null && l > 0){
+      const b_m = b / 100, h_m = h / 100;   // cm → m
+      const vol = b_m * h_m * l;
+      grandTotal += vol;
+      anyValid = true;
+      calcLine(resEl,
+        r.label + ": " + fmtUpto(b_m, 3) + " m × " + fmtUpto(h_m, 3) +
+        " m × " + fmtUpto(l, 2) + " m = " + fmtN(vol, 4) + " m³",
+        "formula");
+    } else {
+      calcLine(resEl, r.label + ": — Werte eintragen", "error");
+    }
+  }
+
+  if (anyValid){
+    const dm3 = grandTotal * 1000;
+    calcLine(resEl,
+      "Summe = " + fmtN(grandTotal, 4) + " m³  (≙ " + fmtN(dm3, 2) + " dm³)",
+      "subtotal");
+  }
+
+  clearChildren(totEl);
+  totEl.appendChild(document.createTextNode(anyValid ? fmtN(grandTotal, 4) + " " : "— "));
+  const u = document.createElement("span"); u.className = "unit"; u.textContent = "m³";
+  totEl.appendChild(u);
+}
+
+// Wire timber inputs
+for (const section of ["schwelle", "pfetten"]){
+  const def = TIMBER_SECTIONS[section];
+  for (const r of def.rows){
+    for (const f of ["b", "h", "l"]){
+      const el = getTimberInput(r.key, f);
+      if (el) el.addEventListener("input", () => recomputeTimber(section));
+    }
+  }
+  recomputeTimber(section);
+}
+
+// Generic EPD copy (data-epd-copy="2.5" etc.)
+document.querySelectorAll("[data-epd-copy]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const code = btn.dataset.epdCopy;
+    if (!navigator.clipboard){
+      showToast(code + " (Kopieren nicht unterstützt)", "terra");
+      return;
+    }
+    navigator.clipboard.writeText(code).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = "✓ kopiert";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = orig;
+        btn.classList.remove("copied");
+      }, 1500);
+    }).catch(() => {
+      showToast("Kopieren fehlgeschlagen", "terra");
+    });
+  });
+});
+
+// Brandschutz EPD copy (per group)
+function wireBrandEpdCopy(group){
+  $(group + "BrandEpdCopy").addEventListener("click", () => {
+    const mat = steelState[group].brand.material;
+    const code = BRAND_BOARDS[mat].qng.code;
+    if (!navigator.clipboard){
+      showToast(code + " (Kopieren nicht unterstützt)", "terra");
+      return;
+    }
+    navigator.clipboard.writeText(code).then(() => {
+      const btn = $(group + "BrandEpdCopy");
+      btn.textContent = "✓ kopiert";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = "Kopieren";
+        btn.classList.remove("copied");
+      }, 1500);
+    });
+  });
+}
+wireBrandEpdCopy("stuetzen");
+wireBrandEpdCopy("traeger");
 
 // ════════════════════════════════════════════════════════════════════════════
 // PWA — Service Worker, Install-Prompt, Offline-Status

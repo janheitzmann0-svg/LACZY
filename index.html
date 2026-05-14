@@ -28,8 +28,8 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="Permissions-Policy" content="geolocation=(), camera=(), payment=(), usb=(), accelerometer=(), gyroscope=(), magnetometer=(), microphone=(self)">
 
-<title>LACZY — QNG-Baustoffsuche</title>
-<meta name="description" content="LACZY — QNG-Rechenwerte 2023 finden per Sprache oder Text. Eigene Materialien anlegen.">
+<title>LACZY — QNG-Baustoffsuche & Rechner</title>
+<meta name="description" content="LACZY — QNG-Rechenwerte 2023 finden per Sprache oder Text. Eigene Materialien anlegen. Material-Rechner für die LCA-Eingabe.">
 <meta name="theme-color" content="#f5f1e8">
 <meta property="og:title" content="LACZY">
 <meta property="og:description" content="LCA, aber entspannt. Sprich oder tippe — finde sofort den QNG-Code für jeden Baustoff.">
@@ -81,6 +81,14 @@
   --sun: #d9a566;
   --sun-glow: rgba(217, 165, 102, 0.18);
 
+  --slate: #4f6471;
+  --slate-deep: #364852;
+  --slate-tint: rgba(79, 100, 113, 0.08);
+
+  --copper: #a0623a;
+  --copper-deep: #7d4a28;
+  --copper-tint: rgba(160, 98, 58, 0.10);
+
   --green-live: #7a9168;
   --warn: #c47a52;
 
@@ -124,7 +132,7 @@ body::before{
   padding-top: max(1.5rem, env(safe-area-inset-top));
 }
 
-/* ── App bar (status + install) ───────────────────────────────── */
+/* ── App bar (status + install + back) ───────────────────────── */
 .app-bar{
   display:flex; align-items:center; justify-content:space-between;
   margin-bottom: 1.25rem; gap: 8px; flex-wrap: wrap;
@@ -154,6 +162,19 @@ body::before{
 .icon-btn:hover{ background: var(--surface-2); color: var(--text); border-color: var(--border-2) }
 .icon-btn svg{ width: 16px; height: 16px }
 
+/* Back button — visible only on tool screens */
+.back-btn{
+  display: none; align-items: center; gap: 6px;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-2);
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+  padding: 7px 12px 7px 9px; border-radius: 100px; cursor: pointer;
+  transition: all .15s ease;
+}
+.back-btn.show{ display: inline-flex }
+.back-btn:hover{ background: var(--surface); color: var(--text); border-color: var(--border-2) }
+.back-btn svg{ width: 14px; height: 14px }
+
 .install-btn{
   display:none; align-items:center; gap:7px;
   background: var(--sage); border: none; color: #fff;
@@ -166,13 +187,24 @@ body::before{
 .install-btn.show{display: inline-flex}
 .install-btn svg{width: 14px; height: 14px}
 
+/* ── Screen system ───────────────────────────────────────────── */
+.screen{ display: none }
+.screen.active{ display: block; animation: fadeInScreen .2s ease }
+@keyframes fadeInScreen{
+  from{opacity: 0; transform: translateY(4px)}
+  to{opacity: 1; transform: translateY(0)}
+}
+
 /* ── Header / Brand ───────────────────────────────────────────── */
 .brand{ text-align: center; margin: 2rem 0 2.25rem }
+.brand.compact{ margin: 0.5rem 0 1.5rem }
 .brand-mark{
   display: inline-flex; align-items: center; justify-content: center;
   margin-bottom: 1rem;
 }
+.brand.compact .brand-mark{ margin-bottom: 0.4rem }
 .brand-mark svg{ width: 36px; height: 44px }
+.brand.compact .brand-mark svg{ width: 26px; height: 32px }
 .brand h1{
   font-family: var(--font-display);
   font-weight: 400;
@@ -182,6 +214,7 @@ body::before{
   line-height: 1;
   font-variation-settings: "opsz" 144, "SOFT" 50;
 }
+.brand.compact h1{ font-size: clamp(28px, 5vw, 36px) }
 .brand h1 em{
   font-style: italic;
   font-weight: 300;
@@ -195,7 +228,126 @@ body::before{
   color: var(--text-2);
   letter-spacing: 0.02em;
 }
+.brand.compact .brand-tagline{ font-size: 11px; margin-top: 0.3rem }
 .brand-tagline .sep{ margin: 0 0.5em; color: var(--text-3) }
+
+/* ── Home screen — tool grid ─────────────────────────────────── */
+.home-intro{
+  text-align: center; margin-bottom: 2rem;
+  color: var(--text-2); font-size: 14px;
+  line-height: 1.6; max-width: 480px;
+  margin-left: auto; margin-right: auto;
+}
+.home-intro em{
+  font-family: var(--font-display);
+  font-style: italic; color: var(--sage-deep);
+  font-weight: 400;
+}
+
+.tool-grid{
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin-bottom: 2rem;
+}
+.tool-card{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 22px 18px 20px;
+  cursor: pointer;
+  text-align: left;
+  transition: all .2s ease;
+  display: flex; flex-direction: column; gap: 10px;
+  position: relative; overflow: hidden;
+  font-family: var(--font-body);
+}
+.tool-card::before{
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 70% 60% at 100% 0%, var(--card-glow, transparent), transparent 70%);
+  pointer-events: none;
+  opacity: 0; transition: opacity .25s;
+}
+.tool-card:hover{
+  transform: translateY(-2px);
+  border-color: var(--border-2);
+  box-shadow: var(--shadow-lift);
+}
+.tool-card:hover::before{ opacity: 1 }
+.tool-card:disabled{
+  cursor: not-allowed; opacity: .55;
+}
+.tool-card:disabled:hover{
+  transform: none; box-shadow: none; border-color: var(--border);
+}
+.tool-card:disabled:hover::before{ opacity: 0 }
+
+.tool-icon{
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  background: var(--card-tint, var(--sage-tint));
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--card-color, var(--sage-deep));
+}
+.tool-icon svg{ width: 24px; height: 24px }
+
+.tool-title{
+  font-family: var(--font-display);
+  font-size: 22px; font-weight: 400;
+  font-variation-settings: "opsz" 100, "SOFT" 50;
+  letter-spacing: -0.01em;
+  color: var(--text); line-height: 1.1;
+}
+.tool-desc{
+  font-size: 12px; color: var(--text-2);
+  line-height: 1.45;
+}
+.tool-card.coming-soon .tool-title::after{
+  content: 'bald';
+  margin-left: 8px;
+  font-family: var(--font-mono); font-size: 9px;
+  letter-spacing: .08em; text-transform: uppercase;
+  background: var(--surface-2); color: var(--text-3);
+  padding: 3px 7px; border-radius: 100px;
+  vertical-align: middle; font-style: normal;
+}
+
+/* card colour variants */
+.tool-card.card-search{ --card-color: var(--sage-deep); --card-tint: var(--sage-tint); --card-glow: var(--sage-glow) }
+.tool-card.card-gutter{ --card-color: var(--slate-deep); --card-tint: var(--slate-tint); --card-glow: rgba(79,100,113,0.10) }
+.tool-card.card-sill{   --card-color: var(--copper-deep); --card-tint: var(--copper-tint); --card-glow: rgba(160,98,58,0.10) }
+.tool-card.card-stat{   --card-color: var(--text); --card-tint: rgba(42,47,38,0.06); --card-glow: rgba(42,47,38,0.08) }
+
+/* App-bar 'home' brand — small inline LACZY title on tool screens */
+.appbar-brand{
+  display: none; align-items: center; gap: 8px;
+  font-family: var(--font-display);
+  font-size: 18px; color: var(--text-2);
+  font-variation-settings: "opsz" 100;
+  font-style: italic;
+}
+.appbar-brand.show{ display: inline-flex }
+.appbar-brand svg{ width: 18px; height: 22px }
+
+/* ── Screen header (used on every tool screen) ───────────────── */
+.screen-header{
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.screen-header h2{
+  font-family: var(--font-display);
+  font-weight: 400; font-size: clamp(28px, 6vw, 36px);
+  letter-spacing: -0.02em; line-height: 1.1;
+  color: var(--text);
+  font-variation-settings: "opsz" 100, "SOFT" 50;
+}
+.screen-header .lead{
+  margin-top: 8px;
+  font-size: 13px; color: var(--text-2);
+  line-height: 1.55;
+}
 
 /* ── Order toggle ─────────────────────────────────────────────── */
 .order-toggle{
@@ -662,6 +814,259 @@ body::before{
 .backup-row .row-text span{ font-size: 11px; color: var(--text-3); line-height: 1.4 }
 .backup-row .btn{ flex-shrink: 0; padding: 8px 12px; font-size: 12px }
 
+/* ════════════════════════════════════════════════════════════════
+   CALCULATOR-WIDGETS (shared by all tool screens, e.g. gutter)
+   ════════════════════════════════════════════════════════════════ */
+.calc-section{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 16px 14px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow-soft);
+}
+.calc-section-head{
+  display: flex; align-items: baseline; gap: 10px;
+  margin-bottom: 12px;
+}
+.calc-section-num{
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-3);
+  background: var(--surface-2);
+  padding: 3px 8px; border-radius: 100px;
+}
+.calc-section-title{
+  font-family: var(--font-display);
+  font-size: 18px; font-weight: 400;
+  font-variation-settings: "opsz" 100;
+  color: var(--text);
+}
+.calc-section-sub{
+  font-size: 11px; color: var(--text-3);
+  margin-left: auto;
+  font-family: var(--font-mono);
+}
+
+/* Material radio cards (used in Gutter / Sill / Statik) */
+.material-grid{
+  display: grid; grid-template-columns: repeat(2, 1fr);
+  gap: 8px; margin-bottom: 12px;
+}
+.material-card{
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+  cursor: pointer; text-align: left;
+  transition: all .15s ease;
+  font-family: var(--font-body);
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--text-2);
+  position: relative;
+}
+.material-card:hover{ border-color: var(--border-2); background: var(--surface) }
+.material-card.active{
+  border-color: var(--sage); background: var(--sage-tint);
+  color: var(--text);
+}
+.material-card.active.copper{
+  border-color: var(--copper); background: var(--copper-tint);
+}
+.material-swatch{
+  width: 22px; height: 22px; border-radius: 50%;
+  flex-shrink: 0; border: 1px solid var(--border);
+}
+.material-swatch.zink{
+  background: linear-gradient(135deg, #c5c5cb 0%, #8a8a8f 100%);
+}
+.material-swatch.kupfer{
+  background: linear-gradient(135deg, #d49a6b 0%, #a0623a 100%);
+}
+.material-card-label{ font-weight: 500 }
+
+/* Input rows — label / input / unit / reset */
+.calc-row{
+  display: grid;
+  grid-template-columns: 1fr 110px 36px 28px;
+  align-items: center; gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.calc-row:last-child{ border-bottom: none }
+.calc-row-label{
+  font-size: 13px; color: var(--text-2);
+}
+.calc-row-label .sub{
+  display: block;
+  font-size: 10px; color: var(--text-3);
+  font-family: var(--font-mono);
+  margin-top: 1px;
+}
+.calc-input{
+  width: 100%;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px;
+  font-family: var(--font-mono); font-size: 13px;
+  color: var(--text); outline: none;
+  transition: all .15s; text-align: right;
+  -webkit-appearance: none;
+  -moz-appearance: textfield;
+}
+.calc-input::-webkit-outer-spin-button,
+.calc-input::-webkit-inner-spin-button{
+  -webkit-appearance: none; margin: 0;
+}
+.calc-input:focus{
+  border-color: var(--sage);
+  box-shadow: 0 0 0 3px var(--sage-tint);
+  background: var(--surface);
+}
+.calc-input.derived{
+  background: var(--surface-2); color: var(--text-2);
+}
+.calc-input.invalid{
+  border-color: var(--terra);
+  box-shadow: 0 0 0 3px var(--terra-tint);
+}
+.calc-unit{
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3);
+}
+.calc-reset{
+  background: transparent; border: none; cursor: pointer;
+  color: var(--text-3); padding: 6px;
+  border-radius: 6px; line-height: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  transition: all .15s;
+}
+.calc-reset:hover{ color: var(--sage-deep); background: var(--sage-tint) }
+.calc-reset:disabled{ opacity: .3; cursor: default }
+.calc-reset:disabled:hover{ color: var(--text-3); background: transparent }
+.calc-reset svg{ width: 13px; height: 13px }
+
+.calc-select{
+  width: 100%;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px;
+  font-family: var(--font-body); font-size: 13px;
+  color: var(--text); outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7466' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 12px;
+  padding-right: 28px;
+}
+.calc-select:focus{
+  border-color: var(--sage);
+  box-shadow: 0 0 0 3px var(--sage-tint);
+  background-color: var(--surface);
+}
+
+/* hint blocks inside calc */
+.calc-hint{
+  background: var(--terra-tint); border: 1px solid var(--terra);
+  border-radius: 10px; padding: 10px 12px;
+  font-size: 12px; color: var(--terra-deep);
+  line-height: 1.5; margin-top: 10px;
+  display: none;
+}
+.calc-hint.show{ display: block }
+.calc-hint strong{ font-weight: 600 }
+
+/* result section */
+.calc-section.result{
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+  border-color: var(--border-2);
+}
+.calc-line{
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--text-2); line-height: 1.7;
+  padding: 4px 0;
+}
+.calc-line.formula{ color: var(--text-3); font-size: 11px }
+.calc-line.subtotal{
+  color: var(--text); font-weight: 500;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.calc-line .num{ color: var(--text); font-weight: 500 }
+.calc-line.error{ color: var(--terra-deep); font-style: italic }
+.calc-block{
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.calc-block-title{
+  font-family: var(--font-body); font-size: 11px;
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+
+.calc-total{
+  display: flex; align-items: baseline; justify-content: space-between;
+  background: var(--text);
+  color: var(--surface);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-top: 12px;
+}
+.calc-total-label{
+  font-family: var(--font-body); font-size: 13px;
+  letter-spacing: .04em;
+  color: rgba(255,255,255,0.75);
+}
+.calc-total-value{
+  font-family: var(--font-display); font-size: 28px;
+  font-weight: 400; line-height: 1;
+  font-variation-settings: "opsz" 144;
+}
+.calc-total-value .unit{
+  font-family: var(--font-mono); font-size: 13px;
+  color: rgba(255,255,255,0.6); margin-left: 4px;
+  font-variation-settings: "opsz" 0;
+}
+
+.calc-epd{
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-top: 10px;
+}
+.calc-epd-label{
+  font-size: 11px; font-family: var(--font-mono);
+  color: var(--text-3); letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.calc-epd-code{
+  font-family: var(--font-display);
+  font-size: 18px; color: var(--text);
+  font-variation-settings: "opsz" 100;
+  flex: 1;
+}
+.calc-epd-code .name{
+  display: block; font-size: 11px;
+  color: var(--text-3); font-family: var(--font-body);
+  margin-top: 1px;
+}
+.calc-epd-missing{
+  background: var(--terra-tint); border-color: var(--terra);
+}
+.calc-epd-missing .calc-epd-code{ color: var(--terra-deep); font-size: 14px }
+.calc-epd-missing .calc-epd-code .name{ color: var(--terra-deep) }
+
+.calc-action-row{
+  display: flex; gap: 10px; justify-content: flex-end;
+  margin-top: 14px;
+}
+
 /* ── Toast ────────────────────────────────────────────────────── */
 .toast{
   position: fixed; left: 50%; bottom: 24px;
@@ -681,11 +1086,365 @@ body::before{
 .toast.sage{ background: var(--sage-deep) }
 .toast.terra{ background: var(--terra-deep) }
 
+/* Coming-soon placeholder */
+.placeholder{
+  text-align: center; padding: 4rem 1rem 3rem;
+  color: var(--text-3);
+}
+.placeholder h3{
+  font-family: var(--font-display);
+  font-weight: 400; font-style: italic; font-size: 22px;
+  color: var(--text-2); margin-bottom: 10px;
+  font-variation-settings: "opsz" 100, "SOFT" 100;
+}
+.placeholder p{
+  font-size: 13px; line-height: 1.6; max-width: 340px;
+  margin: 0 auto;
+}
+
 /* ── Scrollbar ────────────────────────────────────────────────── */
 ::-webkit-scrollbar{width: 8px; height: 8px}
 ::-webkit-scrollbar-track{background: transparent}
 ::-webkit-scrollbar-thumb{background: var(--border-2); border-radius: 4px}
 ::-webkit-scrollbar-thumb:hover{background: var(--text-3)}
+
+/* ════════════════════════════════════════════════════════════════
+   FENSTERBÄNKE — Bauteildetail-Viewer
+   ════════════════════════════════════════════════════════════════ */
+
+/* Hero image at top: the GS40 technical drawing (prominent, readable) */
+.detail-hero{
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 14px 10px;
+  margin-bottom: 12px;
+  cursor: zoom-in;
+  text-align: center;
+  font-family: var(--font-body);
+  transition: all .15s ease;
+  display: block;
+  width: 100%;
+}
+.detail-hero:hover{
+  border-color: var(--border-2);
+  box-shadow: var(--shadow-lift);
+}
+.detail-hero img{
+  display: block;
+  width: 100%; max-width: 100%;
+  height: auto; max-height: 280px;
+  object-fit: contain;
+  margin: 0 auto;
+}
+.detail-hero-caption{
+  margin-top: 10px;
+  display: flex; align-items: center; justify-content: center;
+  gap: 7px;
+  font-size: 11px; color: var(--text-3);
+  font-family: var(--font-mono); letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.detail-hero-caption svg{ width: 11px; height: 11px }
+
+/* Secondary strip — two side-by-side construction details */
+.detail-strip-secondary{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.detail-thumb{
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  cursor: zoom-in;
+  text-align: center;
+  font-family: var(--font-body);
+  transition: all .15s ease;
+  display: flex; flex-direction: column; gap: 6px;
+  overflow: hidden;
+}
+.detail-thumb:hover{
+  border-color: var(--border-2);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+.detail-thumb img{
+  width: 100%;
+  max-height: 160px;
+  height: 160px;
+  object-fit: contain;
+  display: block;
+}
+.detail-thumb-label{
+  font-size: 10px; color: var(--text-3);
+  font-family: var(--font-mono); letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 0 2px;
+  line-height: 1.3;
+}
+
+/* Lightbox modal for full-size detail */
+.lightbox-card{
+  max-width: 920px !important;
+  padding: 14px 14px 0 !important;
+  background: var(--surface);
+}
+.lightbox-card .modal-header{ padding: 4px 8px 8px }
+.lightbox-card .modal-header h2{ font-size: 18px; font-weight: 400 }
+.lightbox-image{
+  width: 100%;
+  max-height: 75vh;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: block;
+  margin: 0 auto 12px;
+}
+.lightbox-caption{
+  font-size: 12px; color: var(--text-2);
+  text-align: center; line-height: 1.5;
+  padding: 0 4px 14px;
+}
+
+/* Inline "see drawing above" reference inside calculator sections */
+.detail-ref{
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: auto;
+  font-size: 11px; color: var(--text-3);
+  font-family: var(--font-mono); letter-spacing: .02em;
+  background: transparent; border: none; cursor: pointer;
+  padding: 4px 8px; border-radius: 6px;
+  transition: all .15s;
+}
+.detail-ref:hover{ background: var(--surface-2); color: var(--text-2) }
+.detail-ref svg{ width: 12px; height: 12px }
+
+/* Three-option radio group (for wood sill thickness) */
+.option-grid{
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 6px; margin-bottom: 6px;
+}
+.option-card{
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 9px 10px;
+  cursor: pointer; text-align: center;
+  font-family: var(--font-body); font-size: 12px;
+  color: var(--text-2);
+  transition: all .15s ease;
+  font-weight: 500;
+}
+.option-card:hover{ border-color: var(--border-2); background: var(--surface) }
+.option-card.active{
+  border-color: var(--sage); background: var(--sage-tint);
+  color: var(--sage-deep);
+}
+.option-card .sub{
+  display: block; font-size: 9px; color: var(--text-3);
+  font-family: var(--font-mono); letter-spacing: .04em;
+  margin-top: 2px; font-weight: 400;
+}
+.option-card.active .sub{ color: var(--sage-deep); opacity: .8 }
+
+/* ════════════════════════════════════════════════════════════════
+   STATIK — Sub-navigation menu, profile selector, switch, multi-row
+   ════════════════════════════════════════════════════════════════ */
+
+/* Sub-menu: 4 cards for the Bauteilart selection inside Statik */
+.statics-menu{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 1rem;
+}
+.statics-menu-card{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 16px 16px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-body);
+  transition: all .15s ease;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.statics-menu-card:hover{
+  border-color: var(--border-2);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lift);
+}
+.statics-menu-card .menu-icon{
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  background: var(--slate-tint); color: var(--slate-deep);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.statics-menu-card .menu-icon svg{ width: 22px; height: 22px }
+.statics-menu-card.wood .menu-icon{
+  background: rgba(125,90,50,0.10); color: #7d5a32;
+}
+.statics-menu-card .menu-title{
+  font-family: var(--font-display);
+  font-size: 19px; font-weight: 400;
+  font-variation-settings: "opsz" 100;
+  color: var(--text); line-height: 1.15;
+}
+.statics-menu-card .menu-desc{
+  font-size: 11px; color: var(--text-2);
+  line-height: 1.45;
+}
+
+/* Subnav header — "back to menu" link inside the screen */
+.subnav-bar{
+  display: none;
+  align-items: center; gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--border);
+}
+.subnav-bar.show{ display: flex }
+.subnav-back{
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-2);
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+  padding: 6px 11px 6px 8px; border-radius: 100px; cursor: pointer;
+  transition: all .15s ease;
+}
+.subnav-back:hover{ background: var(--surface); color: var(--text) }
+.subnav-back svg{ width: 13px; height: 13px }
+.subnav-title{
+  font-family: var(--font-display); font-size: 16px;
+  font-weight: 400; color: var(--text-2);
+  font-variation-settings: "opsz" 100;
+}
+
+/* Statics subsections (Stützen / Träger / Schwelle / Pfetten) */
+.statics-sub{ display: none }
+.statics-sub.active{ display: block; animation: fadeInScreen .2s ease }
+
+/* Profile-art selector — four small cards in a row */
+.profile-grid{
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.profile-card{
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 8px;
+  cursor: pointer; text-align: center;
+  font-family: var(--font-body); font-size: 13px;
+  color: var(--text-2);
+  transition: all .15s ease;
+  font-weight: 500;
+}
+.profile-card:hover{ border-color: var(--border-2); background: var(--surface) }
+.profile-card.active{
+  border-color: var(--slate); background: var(--slate-tint);
+  color: var(--slate-deep);
+}
+.profile-card .sub{
+  display: block; font-size: 9px; color: var(--text-3);
+  font-family: var(--font-mono); letter-spacing: .04em;
+  margin-top: 2px; font-weight: 400;
+}
+.profile-card.active .sub{ color: var(--slate-deep); opacity: .75 }
+
+/* Brandschutz toggle + nested fields */
+.brand-toggle-row{
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+.brand-toggle-label{
+  font-size: 13px; color: var(--text);
+}
+.brand-toggle-label .sub{
+  display: block;
+  font-size: 11px; color: var(--text-3);
+  font-family: var(--font-mono); letter-spacing: .02em;
+  margin-top: 2px;
+}
+/* Custom toggle switch */
+.toggle-switch{
+  position: relative;
+  width: 40px; height: 22px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  cursor: pointer;
+  transition: all .2s;
+  flex-shrink: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.toggle-switch::after{
+  content: '';
+  position: absolute; top: 1px; left: 1px;
+  width: 18px; height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  transition: all .2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.toggle-switch:checked{
+  background: var(--sage);
+  border-color: var(--sage);
+}
+.toggle-switch:checked::after{
+  left: 19px;
+}
+
+.brand-fields{ display: none }
+.brand-fields.show{ display: block; animation: fadeInScreen .15s ease }
+
+/* Multi-row table (Schwelle/Rähm, Fußpfette/Firstpfette) */
+.timber-row{
+  display: grid;
+  grid-template-columns: 110px 60px 60px 1fr 26px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.timber-row:last-child{ border-bottom: none }
+.timber-row-head{
+  display: grid;
+  grid-template-columns: 110px 60px 60px 1fr 26px;
+  gap: 8px;
+  padding: 4px 0 6px;
+  font-size: 10px;
+  font-family: var(--font-mono); letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.timber-row-head > div{ text-align: center }
+.timber-row-head > div:first-child{ text-align: left }
+.timber-row-head > div:nth-child(4){ text-align: right; padding-right: 38px }
+.timber-row-label{
+  font-size: 13px; color: var(--text);
+  font-weight: 500;
+}
+.timber-row-label .sub{
+  display: block; font-size: 10px; color: var(--text-3);
+  font-family: var(--font-mono); margin-top: 1px;
+  font-weight: 400;
+}
+.timber-row .calc-input{ padding: 6px 8px; font-size: 12px }
+.timber-row .calc-input.lfm{ text-align: right }
+.timber-row-suffix{
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 4px;
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--text-3);
+}
 
 /* ── Responsive ───────────────────────────────────────────────── */
 @media (max-width: 480px){
@@ -697,14 +1456,34 @@ body::before{
   .brand h1{font-size: 48px}
   .modal-card{ border-radius: 14px }
   .modal-header h2{ font-size: 20px }
+  .tool-grid{ grid-template-columns: 1fr; gap: 10px }
+  .tool-card{ padding: 18px 16px 16px }
+  .tool-title{ font-size: 20px }
+  .calc-row{ grid-template-columns: 1fr 96px 30px 24px; gap: 8px }
+  .calc-input{ padding: 7px 8px; font-size: 12px }
+  .calc-total-value{ font-size: 24px }
+  .statics-menu{ grid-template-columns: 1fr; gap: 10px }
+  .profile-grid{ grid-template-columns: repeat(2, 1fr) }
+  .timber-row, .timber-row-head{
+    grid-template-columns: 90px 54px 54px 1fr 22px;
+    gap: 6px;
+  }
 }
 </style>
 </head>
 <body>
 <div class="app">
 
-  <!-- App bar -->
+  <!-- App bar (shared across screens) -->
   <div class="app-bar">
+    <button class="back-btn" id="backBtn" type="button" aria-label="Zurück zum Home-Bildschirm">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      <span>Home</span>
+    </button>
+    <span class="appbar-brand" id="appbarBrand">
+      <svg viewBox="0 0 36 44" xmlns="http://www.w3.org/2000/svg"><g transform="rotate(-12 18 22)"><path d="M18 4 C 26 11, 27 28, 18 40 C 9 28, 10 11, 18 4 Z" fill="#7a9168"/><line x1="18" y1="6" x2="18" y2="38" stroke="#5d7a4d" stroke-width="1.4" stroke-linecap="round"/></g></svg>
+      <span>L<em>a</em>czy</span>
+    </span>
     <div class="app-status" id="appStatus" title="Verbindungsstatus">
       <span class="status-dot"></span>
       <span id="appStatusText">Online</span>
@@ -733,89 +1512,1006 @@ body::before{
     <button id="updateBtn" type="button">Aktualisieren</button>
   </div>
 
-  <!-- Brand -->
-  <div class="brand">
-    <div class="brand-mark" aria-hidden="true">
-      <!-- Inline leaf logo -->
-      <svg viewBox="0 0 36 44" xmlns="http://www.w3.org/2000/svg">
-        <g transform="rotate(-12 18 22)">
-          <path d="M18 4 C 26 11, 27 28, 18 40 C 9 28, 10 11, 18 4 Z" fill="#7a9168"/>
-          <line x1="18" y1="6" x2="18" y2="38" stroke="#5d7a4d" stroke-width="1.4" stroke-linecap="round"/>
-        </g>
-      </svg>
+  <!-- ════════════════════════════════════════════════════════════
+       SCREEN: HOME
+       ════════════════════════════════════════════════════════════ -->
+  <section class="screen active" data-screen="home" id="screen-home">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 36 44" xmlns="http://www.w3.org/2000/svg">
+          <g transform="rotate(-12 18 22)">
+            <path d="M18 4 C 26 11, 27 28, 18 40 C 9 28, 10 11, 18 4 Z" fill="#7a9168"/>
+            <line x1="18" y1="6" x2="18" y2="38" stroke="#5d7a4d" stroke-width="1.4" stroke-linecap="round"/>
+          </g>
+        </svg>
+      </div>
+      <h1>L<em>a</em>czy</h1>
+      <div class="brand-tagline">
+        <span>QNG-Hilfswerkzeug für EcoCad</span>
+        <span class="sep">·</span>
+        <span>Wähle ein Werkzeug</span>
+      </div>
     </div>
-    <h1>L<em>a</em>czy</h1>
-    <div class="brand-tagline">
-      <span>QNG-Baustoffsuche</span>
-      <span class="sep">·</span>
-      <span>Sprich oder tippe</span>
-    </div>
-  </div>
 
-  <!-- Order toggle -->
-  <div class="order-toggle" role="tablist">
-    <button class="order-tab active" data-order="1" id="tab1">
-      <span class="tab-label">Standard</span>
-      <span class="tab-sub">QNG · 388</span>
-    </button>
-    <button class="order-tab" data-order="2" id="tab2">
-      <span class="tab-label">Eigene</span>
-      <span class="tab-sub">+ Hersteller · <span id="customCount">0</span></span>
-    </button>
-    <button class="order-tab" data-order="all" id="tabAll">
-      <span class="tab-label">Alles</span>
-      <span class="tab-sub">kombiniert</span>
-    </button>
-  </div>
+    <p class="home-intro">
+      <em>LCA, aber entspannt.</em> Such-Werkzeuge und Material-Rechner als Hilfestellung
+      bei der LCA-Eingabe in Hottgenroth EcoCad. Alle Berechnungen sind transparent
+      und justierbar.
+    </p>
 
-  <div id="noSupport" class="no-support">
-    Spracherkennung nicht verfügbar. Bitte Chrome, Edge oder Safari verwenden — Texteingabe funktioniert überall.
-  </div>
+    <div class="tool-grid">
+      <button class="tool-card card-search" type="button" data-tool="search">
+        <span class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </span>
+        <span class="tool-title">EPD-Suche</span>
+        <span class="tool-desc">388 QNG-Rechenwerte 2023 plus Hersteller-Standards und eigene Materialien — per Sprache oder Text.</span>
+      </button>
 
-  <!-- Mic -->
-  <div class="mic-section">
-    <div class="mic-ring" id="micRing">
-      <button class="mic-btn" id="micBtn" aria-label="Mikrofon">
-        <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
-        <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+      <button class="tool-card card-gutter" type="button" data-tool="gutter">
+        <span class="tool-icon">
+          <!-- Stylized rain + gutter icon -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 4v3M12 3v3M17 4v3"/>
+            <path d="M3 11h18a2 2 0 0 1 0 4v0H3v-4z" fill="currentColor" fill-opacity="0.08"/>
+            <path d="M3 11a2 2 0 0 0-2 2v0a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2v0a2 2 0 0 0-2-2"/>
+            <path d="M14 15v6"/>
+          </svg>
+        </span>
+        <span class="tool-title">Regenrinne</span>
+        <span class="tool-desc">Gewicht in kg für Regenrinne und Fallrohr — Titanzink oder Kupfer, nach DIN EN 612.</span>
+      </button>
+
+      <button class="tool-card card-sill" type="button" data-tool="sill">
+        <span class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="14" rx="1"/>
+            <line x1="12" y1="3" x2="12" y2="17"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+            <line x1="2" y1="20" x2="22" y2="20"/>
+            <line x1="2" y1="20" x2="4" y2="17"/>
+            <line x1="22" y1="20" x2="20" y2="17"/>
+          </svg>
+        </span>
+        <span class="tool-title">Fensterbänke</span>
+        <span class="tool-desc">Aluminium außen (kg) und Holz innen (m³) — nach Standard-Bauteildetails.</span>
+      </button>
+
+      <button class="tool-card card-stat" type="button" data-tool="statics">
+        <span class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="3" x2="20" y2="3"/>
+            <line x1="4" y1="21" x2="20" y2="21"/>
+            <line x1="12" y1="3" x2="12" y2="21"/>
+            <line x1="7" y1="3" x2="7" y2="21" stroke-opacity="0.3"/>
+            <line x1="17" y1="3" x2="17" y2="21" stroke-opacity="0.3"/>
+          </svg>
+        </span>
+        <span class="tool-title">Statik</span>
+        <span class="tool-desc">Stahlstützen, Stahlträger, Schwelle/Rähm, Pfetten — inkl. Brandschutzbekleidung.</span>
       </button>
     </div>
-    <div class="live-bar" id="liveBar">
-      <span class="live-dot"></span>
-      <span class="live-text" id="liveText">Bereit</span>
+
+    <div class="source-note">
+      Quelle: QNG-Rechenwerte 2023 v1.3 · BBSR / Ökobaudat · DIN EN 612 / EN 988
     </div>
-    <div class="status-text" id="statusText">Mikrofon drücken um Dauerhören zu starten</div>
-  </div>
+  </section>
 
-  <!-- Search -->
-  <div class="search-wrap">
-    <span class="search-icon">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    </span>
-    <input type="text" class="search-input" id="searchInput" placeholder='Suche: „Holz", „Beton", „Fenster", „5.45" …' autocomplete="off" spellcheck="false">
-    <button class="search-clear" id="clearBtn" aria-label="Löschen">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  <!-- ════════════════════════════════════════════════════════════
+       SCREEN: SEARCH (existing functionality)
+       ════════════════════════════════════════════════════════════ -->
+  <section class="screen" data-screen="search" id="screen-search">
+
+    <div class="screen-header">
+      <h2>EPD-Suche</h2>
+      <div class="lead">Finde den QNG-Code für jeden Baustoff — per Sprache, Tippen oder eigene Material-Anlage.</div>
+    </div>
+
+    <!-- Order toggle -->
+    <div class="order-toggle" role="tablist">
+      <button class="order-tab active" data-order="1" id="tab1">
+        <span class="tab-label">Standard</span>
+        <span class="tab-sub">QNG · 388</span>
+      </button>
+      <button class="order-tab" data-order="2" id="tab2">
+        <span class="tab-label">Eigene</span>
+        <span class="tab-sub">+ Hersteller · <span id="customCount">0</span></span>
+      </button>
+      <button class="order-tab" data-order="all" id="tabAll">
+        <span class="tab-label">Alles</span>
+        <span class="tab-sub">kombiniert</span>
+      </button>
+    </div>
+
+    <div id="noSupport" class="no-support">
+      Spracherkennung nicht verfügbar. Bitte Chrome, Edge oder Safari verwenden — Texteingabe funktioniert überall.
+    </div>
+
+    <!-- Mic -->
+    <div class="mic-section">
+      <div class="mic-ring" id="micRing">
+        <button class="mic-btn" id="micBtn" aria-label="Mikrofon">
+          <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+          <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+        </button>
+      </div>
+      <div class="live-bar" id="liveBar">
+        <span class="live-dot"></span>
+        <span class="live-text" id="liveText">Bereit</span>
+      </div>
+      <div class="status-text" id="statusText">Mikrofon drücken um Dauerhören zu starten</div>
+    </div>
+
+    <!-- Search -->
+    <div class="search-wrap">
+      <span class="search-icon">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </span>
+      <input type="text" class="search-input" id="searchInput" placeholder='Suche: „Holz", „Beton", „Fenster", „5.45" …' autocomplete="off" spellcheck="false">
+      <button class="search-clear" id="clearBtn" aria-label="Löschen">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stats-count" id="statsCount"></div>
+      <button class="add-mat-btn" id="addMatBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>Eigenes Material</span>
+      </button>
+    </div>
+
+    <div class="filter-pills" id="filterPills"></div>
+    <div class="results" id="results"></div>
+
+    <div class="source-note">
+      Quelle: QNG-Rechenwerte 2023 v1.3 · BBSR / Ökobaudat
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════
+       SCREEN: GUTTER (Regenrinne & Fallrohr)
+       ════════════════════════════════════════════════════════════ -->
+  <section class="screen" data-screen="gutter" id="screen-gutter">
+
+    <div class="screen-header">
+      <h2>Regenrinne &amp; Fallrohr</h2>
+      <div class="lead">Berechnet das Materialgewicht in kg für halbrunde Regenrinne (Zuschnittsbreite, „halbes Rohr") und rundes Fallrohr aus Titanzink oder Kupfer. Alle Werte sind editierbar.</div>
+    </div>
+
+    <!-- 1: Material -->
+    <div class="calc-section">
+      <div class="calc-section-head">
+        <span class="calc-section-num">1</span>
+        <span class="calc-section-title">Material</span>
+      </div>
+      <div class="material-grid">
+        <button class="material-card active" type="button" data-material="zink">
+          <span class="material-swatch zink" aria-hidden="true"></span>
+          <span class="material-card-label">Titanzink</span>
+        </button>
+        <button class="material-card" type="button" data-material="kupfer">
+          <span class="material-swatch kupfer" aria-hidden="true"></span>
+          <span class="material-card-label">Kupfer</span>
+        </button>
+      </div>
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Dichte
+          <span class="sub">Werkstoffeigenschaft</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="gutterDensity" data-default-zink="7200" data-default-kupfer="8930" value="7200">
+        <span class="calc-unit">kg/m³</span>
+        <button class="calc-reset" type="button" id="gutterDensityReset" aria-label="Standardwert wiederherstellen" title="Standardwert wiederherstellen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+      </div>
+      <div class="calc-hint" id="gutterKupferHint">
+        <strong>Hinweis:</strong> Kupfer ist <em>nicht</em> in den QNG-Rechenwerten 2023 v1.3 enthalten.
+        Der Rechner gibt das Gewicht aus, in EcoCad muss eine externe Datenquelle
+        (z.B. Ökobaudat-Prozessdatensatz „Kupferband") manuell zugeordnet werden.
+      </div>
+    </div>
+
+    <!-- 2: Regenrinne -->
+    <div class="calc-section">
+      <div class="calc-section-head">
+        <span class="calc-section-num">2</span>
+        <span class="calc-section-title">Regenrinne (halbrund)</span>
+        <span class="calc-section-sub">DIN EN 612</span>
+      </div>
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Nenngröße
+          <span class="sub">setzt Zuschnitt und Wandstärke</span>
+        </div>
+        <select class="calc-select" id="gutterSize" style="grid-column: 2 / span 3">
+          <option value="DN 80">DN 80 (200 mm Zuschnitt)</option>
+          <option value="DN 100" selected>DN 100 (250 mm Zuschnitt)</option>
+          <option value="DN 125">DN 125 (285 mm Zuschnitt)</option>
+          <option value="DN 150">DN 150 (333 mm Zuschnitt)</option>
+          <option value="DN 200">DN 200 (400 mm Zuschnitt)</option>
+          <option value="DN 250">DN 250 (500 mm Zuschnitt)</option>
+        </select>
+      </div>
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Zuschnittsbreite
+          <span class="sub">„gestreckte Länge"</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="gutterCutWidth" value="250">
+        <span class="calc-unit">mm</span>
+        <button class="calc-reset" type="button" data-reset="gutterCutWidth" aria-label="Standardwert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+      </div>
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Wandstärke
+          <span class="sub">je Material/Nenngröße</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="gutterThickness" value="0,65">
+        <span class="calc-unit">mm</span>
+        <button class="calc-reset" type="button" data-reset="gutterThickness" aria-label="Standardwert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+      </div>
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Laufmeter Rinne
+          <span class="sub">verbaute Länge</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="gutterLength" placeholder="z.B. 12,5">
+        <span class="calc-unit">m</span>
+        <span></span>
+      </div>
+    </div>
+
+    <!-- 3: Fallrohr -->
+    <div class="calc-section">
+      <div class="calc-section-head">
+        <span class="calc-section-num">3</span>
+        <span class="calc-section-title">Fallrohr (rund, voll)</span>
+        <span class="calc-section-sub">π × Ø × Wand</span>
+      </div>
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Außendurchmesser
+          <span class="sub">Empfehlung passend zur Rinne</span>
+        </div>
+        <select class="calc-select" id="pipeSize" style="grid-column: 2 / span 3">
+          <option value="60">DN 60 (60 mm)</option>
+          <option value="76">DN 76 (76 mm)</option>
+          <option value="80" selected>DN 80 (80 mm)</option>
+          <option value="87">DN 87 (87 mm)</option>
+          <option value="100">DN 100 (100 mm)</option>
+          <option value="120">DN 120 (120 mm)</option>
+          <option value="150">DN 150 (150 mm)</option>
+        </select>
+      </div>
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Außendurchmesser (mm)
+          <span class="sub">aus Auswahl, editierbar</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="pipeDiameter" value="80">
+        <span class="calc-unit">mm</span>
+        <button class="calc-reset" type="button" data-reset="pipeDiameter" aria-label="Standardwert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+      </div>
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Wandstärke Fallrohr
+          <span class="sub">i.d.R. wie Rinne</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="pipeThickness" value="0,65">
+        <span class="calc-unit">mm</span>
+        <button class="calc-reset" type="button" data-reset="pipeThickness" aria-label="Standardwert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+      </div>
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Laufmeter Fallrohr
+          <span class="sub">verbaute Länge</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="pipeLength" placeholder="z.B. 6,0">
+        <span class="calc-unit">m</span>
+        <span></span>
+      </div>
+    </div>
+
+    <!-- 4: Ergebnis -->
+    <div class="calc-section result">
+      <div class="calc-section-head">
+        <span class="calc-section-num">∑</span>
+        <span class="calc-section-title">Ergebnis</span>
+        <span class="calc-section-sub" id="gutterMaterialLabel">Titanzink</span>
+      </div>
+
+      <div class="calc-block">
+        <div class="calc-block-title">Regenrinne</div>
+        <div id="gutterResult"></div>
+      </div>
+
+      <div class="calc-block">
+        <div class="calc-block-title">Fallrohr</div>
+        <div id="pipeResult"></div>
+      </div>
+
+      <div class="calc-total">
+        <span class="calc-total-label">Gesamtgewicht</span>
+        <span class="calc-total-value" id="gutterTotal">— <span class="unit">kg</span></span>
+      </div>
+
+      <div class="calc-epd" id="gutterEpd">
+        <span class="calc-epd-label">QNG</span>
+        <span class="calc-epd-code" id="gutterEpdCode">
+          2.11
+          <span class="name">Zinkblech</span>
+        </span>
+        <button class="copy-btn" type="button" id="gutterEpdCopy">Kopieren</button>
+      </div>
+
+      <div class="calc-action-row">
+        <button class="btn btn-text" type="button" id="gutterReset">Alles zurücksetzen</button>
+      </div>
+    </div>
+
+    <div class="source-note">
+      Quelle: DIN EN 612 (Halbrunde Rinnen / Fallrohre), DIN EN 988 (Titanzink), Werkstoffdaten Rheinzink/NedZink
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════
+       SCREEN: SILL — Fensterbänke (außen Alu / innen Holz)
+       ════════════════════════════════════════════════════════════ -->
+  <section class="screen" data-screen="sill" id="screen-sill">
+
+    <div class="screen-header">
+      <h2>Fensterbänke</h2>
+      <div class="lead">Aluminium außen (kg) und Holz innen (m³) — nach Standard-Bauteildetails für Holzrahmenbau mit 24 cm Ständer.</div>
+    </div>
+
+    <!-- Bauteildetail-Galerie: GS40-Zeichnung prominent, Anschlussdetails darunter -->
+    <button class="detail-hero" type="button" data-detail="profil" aria-label="GS40-Profilzeichnung in voller Größe ansehen">
+      <img src="detail-gs40-profil.jpg" alt="GUTMANN GS40 Aluminium-Fensterbank — Profilzeichnung mit allen Maßen">
+      <div class="detail-hero-caption">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+        <span>GUTMANN GS40 — klick für volle Größe</span>
+      </div>
     </button>
+
+    <div class="detail-strip-secondary">
+      <button class="detail-thumb" type="button" data-detail="vertikal" aria-label="Vertikalschnitt ansehen">
+        <img src="detail-anschluss-vertikal.jpg" alt="Vertikalschnitt Fensteranschluss mit GS40 und Holz-Innenfensterbank" loading="lazy">
+        <span class="detail-thumb-label">Vertikalschnitt</span>
+      </button>
+      <button class="detail-thumb" type="button" data-detail="horizontal" aria-label="Horizontalschnitt ansehen">
+        <img src="detail-anschluss-horizontal.jpg" alt="Horizontalschnitt Fensteranschluss / Leibung" loading="lazy">
+        <span class="detail-thumb-label">Horizontalschnitt</span>
+      </button>
+    </div>
+
+    <!-- ── A: Aluminium außen ─────────────────────────────────── -->
+    <div class="calc-section">
+      <div class="calc-section-head">
+        <span class="calc-section-num">A</span>
+        <span class="calc-section-title">Aluminium außen</span>
+        <button class="detail-ref" type="button" data-detail="profil" aria-label="GS40-Profilzeichnung öffnen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7"/><path d="M10 14L21 3"/><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/></svg>
+          <span>Zeichnung</span>
+        </button>
+      </div>
+
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Gestreckte Länge
+          <span class="sub">Gesamtbreite Blech (inkl. Tropfkante)</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="sillAluLength" value="250">
+        <span class="calc-unit">mm</span>
+        <button class="calc-reset" type="button" data-sill-reset="aluLength" aria-label="Standardwert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+      </div>
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Materialstärke
+          <span class="sub">GS40 standard 2,0 mm</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="sillAluThickness" value="2,0">
+        <span class="calc-unit">mm</span>
+        <button class="calc-reset" type="button" data-sill-reset="aluThickness" aria-label="Standardwert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+      </div>
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Dichte Aluminium
+          <span class="sub">EN AW-6060 T66</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="sillAluDensity" value="2700">
+        <span class="calc-unit">kg/m³</span>
+        <button class="calc-reset" type="button" data-sill-reset="aluDensity" aria-label="Standardwert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+      </div>
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Laufmeter außen
+          <span class="sub">verbaute Länge</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="sillAluRunning" placeholder="z.B. 8,5">
+        <span class="calc-unit">m</span>
+        <span></span>
+      </div>
+    </div>
+
+    <!-- A-Ergebnis -->
+    <div class="calc-section result">
+      <div class="calc-section-head">
+        <span class="calc-section-num">∑A</span>
+        <span class="calc-section-title">Ergebnis Aluminium außen</span>
+      </div>
+      <div class="calc-block">
+        <div class="calc-block-title">Berechnung</div>
+        <div id="sillAluResult"></div>
+      </div>
+      <div class="calc-total">
+        <span class="calc-total-label">Gewicht Aluminium</span>
+        <span class="calc-total-value" id="sillAluTotal">— <span class="unit">kg</span></span>
+      </div>
+      <div class="calc-epd">
+        <span class="calc-epd-label">QNG</span>
+        <span class="calc-epd-code">
+          2.15
+          <span class="name">Aluminium Profil</span>
+        </span>
+        <button class="copy-btn" type="button" id="sillAluEpdCopy">Kopieren</button>
+      </div>
+    </div>
+
+    <!-- ── B: Holz innen ──────────────────────────────────────── -->
+    <div class="calc-section">
+      <div class="calc-section-head">
+        <span class="calc-section-num">B</span>
+        <span class="calc-section-title">Holz innen</span>
+        <button class="detail-ref" type="button" data-detail="vertikal" aria-label="Vertikalschnitt öffnen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7"/><path d="M10 14L21 3"/><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/></svg>
+          <span>Zeichnung</span>
+        </button>
+      </div>
+
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Ausladung
+          <span class="sub">vorne bündig, hinten an Fenster</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="sillWoodLength" value="175">
+        <span class="calc-unit">mm</span>
+        <button class="calc-reset" type="button" data-sill-reset="woodLength" aria-label="Standardwert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+      </div>
+
+      <div style="padding: 7px 0; border-bottom: 1px dashed var(--border)">
+        <div class="calc-row-label" style="margin-bottom: 8px">
+          Dicke
+          <span class="sub">gängige Bretter-Stärken</span>
+        </div>
+        <div class="option-grid">
+          <button class="option-card active" type="button" data-wood-thickness="20">
+            20<span class="sub">mm</span>
+          </button>
+          <button class="option-card" type="button" data-wood-thickness="25">
+            25<span class="sub">mm</span>
+          </button>
+          <button class="option-card" type="button" data-wood-thickness="free">
+            Frei<span class="sub">eintragen</span>
+          </button>
+        </div>
+        <div id="sillWoodThicknessCustomRow" style="display: none">
+          <div class="calc-row" style="border-bottom: none; padding-top: 8px">
+            <div class="calc-row-label" style="font-size: 12px">
+              Eigene Dicke
+              <span class="sub">in Millimetern</span>
+            </div>
+            <input type="text" inputmode="decimal" class="calc-input" id="sillWoodThicknessCustom" placeholder="z.B. 30">
+            <span class="calc-unit">mm</span>
+            <span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="calc-row">
+        <div class="calc-row-label">
+          Laufmeter innen
+          <span class="sub">verbaute Länge</span>
+        </div>
+        <input type="text" inputmode="decimal" class="calc-input" id="sillWoodRunning" placeholder="z.B. 8,5">
+        <span class="calc-unit">m</span>
+        <span></span>
+      </div>
+    </div>
+
+    <!-- B-Ergebnis -->
+    <div class="calc-section result">
+      <div class="calc-section-head">
+        <span class="calc-section-num">∑B</span>
+        <span class="calc-section-title">Ergebnis Holz innen</span>
+        <span class="calc-section-sub">Volumen statt Gewicht</span>
+      </div>
+      <div class="calc-block">
+        <div class="calc-block-title">Berechnung</div>
+        <div id="sillWoodResult"></div>
+      </div>
+      <div class="calc-total">
+        <span class="calc-total-label">Volumen Holz</span>
+        <span class="calc-total-value" id="sillWoodTotal">— <span class="unit">m³</span></span>
+      </div>
+      <div class="calc-epd">
+        <span class="calc-epd-label">QNG</span>
+        <span class="calc-epd-code">
+          3.1
+          <span class="name">Hobelware (Durchschnitt DE)</span>
+        </span>
+        <button class="copy-btn" type="button" id="sillWoodEpdCopy">Kopieren</button>
+      </div>
+
+      <div class="calc-action-row">
+        <button class="btn btn-text" type="button" id="sillReset">Alles zurücksetzen</button>
+      </div>
+    </div>
+
+    <div class="source-note">
+      Quellen: GUTMANN Katalog Aluminium Fensterbänke (GS40, EN AW-6060 T66) · Standard-Bauteildetails Holzrahmenbau 24 cm
+    </div>
+  </section>
+
+  <!-- Lightbox modal for full-size Bauteildetail -->
+  <div class="modal" id="detailModal" aria-hidden="true" role="dialog">
+    <div class="modal-overlay" data-close></div>
+    <div class="modal-card lightbox-card">
+      <div class="modal-header">
+        <h2 id="detailTitle">Bauteildetail</h2>
+        <button class="modal-close" data-close aria-label="Schließen">×</button>
+      </div>
+      <img class="lightbox-image" id="detailImage" src="" alt="">
+      <div class="lightbox-caption" id="detailCaption"></div>
+    </div>
   </div>
 
-  <div class="stats-bar">
-    <div class="stats-count" id="statsCount"></div>
-    <button class="add-mat-btn" id="addMatBtn" type="button">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      <span>Eigenes Material</span>
-    </button>
-  </div>
+  <!-- ════════════════════════════════════════════════════════════
+       SCREEN: STATICS — Statische Bauteile
+       ════════════════════════════════════════════════════════════ -->
+  <section class="screen" data-screen="statics" id="screen-statics">
 
-  <div class="filter-pills" id="filterPills"></div>
-  <div class="results" id="results"></div>
+    <div class="screen-header">
+      <h2>Statik</h2>
+      <div class="lead">Gewicht für Stahlprofile (HEA/HEB/HEM/IPE) inkl. optionaler Brandschutzbekleidung, sowie Holzvolumen für Schwelle/Rähm und Pfetten.</div>
+    </div>
 
-  <div class="source-note">
-    Quelle: QNG-Rechenwerte 2023 v1.3 · BBSR / Ökobaudat
-  </div>
+    <!-- Sub-Auswahl-Menü (sichtbar wenn keine Sub-Sektion aktiv ist) -->
+    <div class="statics-menu" id="staticsMenu">
+      <button class="statics-menu-card" type="button" data-statics="stuetzen">
+        <span class="menu-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="6" y1="3" x2="6" y2="21"/><line x1="18" y1="3" x2="18" y2="21"/><line x1="4" y1="3" x2="20" y2="3"/><line x1="4" y1="21" x2="20" y2="21"/></svg>
+        </span>
+        <span class="menu-title">Stahlstützen</span>
+        <span class="menu-desc">Vertikales Profil, optional mit Brandschutzbekleidung.</span>
+      </button>
+      <button class="statics-menu-card" type="button" data-statics="traeger">
+        <span class="menu-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+        </span>
+        <span class="menu-title">Stahlträger</span>
+        <span class="menu-desc">Horizontales Profil, optional mit Brandschutzbekleidung.</span>
+      </button>
+      <button class="statics-menu-card wood" type="button" data-statics="schwelle">
+        <span class="menu-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="6" width="18" height="4" rx="0.5"/><rect x="3" y="14" width="18" height="4" rx="0.5"/></svg>
+        </span>
+        <span class="menu-title">Schwelle &amp; Rähm</span>
+        <span class="menu-desc">Holz · Standard 8 × 24 cm · Volumen.</span>
+      </button>
+      <button class="statics-menu-card wood" type="button" data-statics="pfetten">
+        <span class="menu-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><polygon points="12,4 22,12 12,20 2,12"/><line x1="2" y1="12" x2="22" y2="12" stroke-opacity="0.4"/></svg>
+        </span>
+        <span class="menu-title">Pfetten</span>
+        <span class="menu-desc">Holz · Fußpfette 20 × 24 cm · Firstpfette 20 × 36 cm.</span>
+      </button>
+    </div>
+
+    <!-- Sub-Sektion: Stahlstützen -->
+    <div class="statics-sub" data-stat-sub="stuetzen">
+      <div class="subnav-bar show">
+        <button class="subnav-back" type="button" data-stat-back>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <span>Auswahl</span>
+        </button>
+        <span class="subnav-title">Stahlstützen</span>
+      </div>
+
+      <div class="calc-section">
+        <div class="calc-section-head">
+          <span class="calc-section-num">1</span>
+          <span class="calc-section-title">Profil</span>
+        </div>
+        <div class="profile-grid" data-pgroup="stuetzen">
+          <button class="profile-card active" type="button" data-profile-type="HEA">HEA<span class="sub">leicht</span></button>
+          <button class="profile-card" type="button" data-profile-type="HEB">HEB<span class="sub">mittel</span></button>
+          <button class="profile-card" type="button" data-profile-type="HEM">HEM<span class="sub">verstärkt</span></button>
+          <button class="profile-card" type="button" data-profile-type="IPE">IPE<span class="sub">mittelbr.</span></button>
+        </div>
+        <div class="calc-row">
+          <div class="calc-row-label">
+            Größe
+            <span class="sub">Nenngröße in mm</span>
+          </div>
+          <select class="calc-select" id="stuetzenSize" style="grid-column: 2 / span 3"></select>
+        </div>
+        <div class="calc-row">
+          <div class="calc-row-label">
+            Profilgewicht
+            <span class="sub">je lfm, aus DIN-Tabelle</span>
+          </div>
+          <input type="text" inputmode="decimal" class="calc-input" id="stuetzenWeight" readonly>
+          <span class="calc-unit">kg/m</span>
+          <span></span>
+        </div>
+      </div>
+
+      <div class="calc-section">
+        <div class="calc-section-head">
+          <span class="calc-section-num">2</span>
+          <span class="calc-section-title">Menge</span>
+        </div>
+        <div class="calc-row">
+          <div class="calc-row-label">
+            Anzahl Stützen
+            <span class="sub">Stückzahl</span>
+          </div>
+          <input type="text" inputmode="numeric" class="calc-input" id="stuetzenCount" value="1">
+          <span class="calc-unit">×</span>
+          <span></span>
+        </div>
+        <div class="calc-row">
+          <div class="calc-row-label">
+            Länge pro Stütze
+            <span class="sub">Höhe in m</span>
+          </div>
+          <input type="text" inputmode="decimal" class="calc-input" id="stuetzenLength" placeholder="z.B. 2,75">
+          <span class="calc-unit">m</span>
+          <span></span>
+        </div>
+      </div>
+
+      <!-- Brandschutz -->
+      <div class="calc-section">
+        <div class="calc-section-head">
+          <span class="calc-section-num">3</span>
+          <span class="calc-section-title">Brandschutzbekleidung</span>
+        </div>
+        <label class="brand-toggle-row" for="stuetzenBrandToggle">
+          <span class="brand-toggle-label">
+            Brandschutzbekleidung hinzufügen
+            <span class="sub">GKB-F oder Gipsfaser, kastenförmig</span>
+          </span>
+          <input type="checkbox" class="toggle-switch" id="stuetzenBrandToggle">
+        </label>
+        <div class="brand-fields" id="stuetzenBrandFields"></div>
+      </div>
+
+      <!-- Ergebnis -->
+      <div class="calc-section result">
+        <div class="calc-section-head">
+          <span class="calc-section-num">∑</span>
+          <span class="calc-section-title">Ergebnis</span>
+        </div>
+        <div class="calc-block">
+          <div class="calc-block-title">Stahl</div>
+          <div id="stuetzenSteelResult"></div>
+        </div>
+        <div class="calc-block" id="stuetzenBrandBlock" style="display:none">
+          <div class="calc-block-title">Brandschutzbekleidung</div>
+          <div id="stuetzenBrandResult"></div>
+        </div>
+        <div class="calc-total">
+          <span class="calc-total-label">Stahl gesamt</span>
+          <span class="calc-total-value" id="stuetzenSteelTotal">— <span class="unit">kg</span></span>
+        </div>
+        <div class="calc-total" id="stuetzenBrandTotal" style="display:none; margin-top:8px; background: var(--slate)">
+          <span class="calc-total-label">Bekleidung gesamt</span>
+          <span class="calc-total-value" id="stuetzenBrandTotalValue">— <span class="unit">kg</span></span>
+        </div>
+        <div class="calc-epd">
+          <span class="calc-epd-label">QNG</span>
+          <span class="calc-epd-code">
+            2.5
+            <span class="name">Stahlprofil</span>
+          </span>
+          <button class="copy-btn" type="button" data-epd-copy="2.5">Kopieren</button>
+        </div>
+        <div class="calc-epd" id="stuetzenBrandEpd" style="display:none">
+          <span class="calc-epd-label">QNG</span>
+          <span class="calc-epd-code" id="stuetzenBrandEpdCode"></span>
+          <button class="copy-btn" type="button" id="stuetzenBrandEpdCopy">Kopieren</button>
+        </div>
+        <div class="calc-action-row">
+          <button class="btn btn-text" type="button" data-stat-reset="stuetzen">Zurücksetzen</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sub-Sektion: Stahlträger (gleicher Aufbau, andere IDs) -->
+    <div class="statics-sub" data-stat-sub="traeger">
+      <div class="subnav-bar show">
+        <button class="subnav-back" type="button" data-stat-back>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <span>Auswahl</span>
+        </button>
+        <span class="subnav-title">Stahlträger</span>
+      </div>
+
+      <div class="calc-section">
+        <div class="calc-section-head">
+          <span class="calc-section-num">1</span>
+          <span class="calc-section-title">Profil</span>
+        </div>
+        <div class="profile-grid" data-pgroup="traeger">
+          <button class="profile-card active" type="button" data-profile-type="HEA">HEA<span class="sub">leicht</span></button>
+          <button class="profile-card" type="button" data-profile-type="HEB">HEB<span class="sub">mittel</span></button>
+          <button class="profile-card" type="button" data-profile-type="HEM">HEM<span class="sub">verstärkt</span></button>
+          <button class="profile-card" type="button" data-profile-type="IPE">IPE<span class="sub">mittelbr.</span></button>
+        </div>
+        <div class="calc-row">
+          <div class="calc-row-label">
+            Größe
+            <span class="sub">Nenngröße in mm</span>
+          </div>
+          <select class="calc-select" id="traegerSize" style="grid-column: 2 / span 3"></select>
+        </div>
+        <div class="calc-row">
+          <div class="calc-row-label">
+            Profilgewicht
+            <span class="sub">je lfm, aus DIN-Tabelle</span>
+          </div>
+          <input type="text" inputmode="decimal" class="calc-input" id="traegerWeight" readonly>
+          <span class="calc-unit">kg/m</span>
+          <span></span>
+        </div>
+      </div>
+
+      <div class="calc-section">
+        <div class="calc-section-head">
+          <span class="calc-section-num">2</span>
+          <span class="calc-section-title">Menge</span>
+        </div>
+        <div class="calc-row">
+          <div class="calc-row-label">
+            Anzahl Träger
+            <span class="sub">Stückzahl</span>
+          </div>
+          <input type="text" inputmode="numeric" class="calc-input" id="traegerCount" value="1">
+          <span class="calc-unit">×</span>
+          <span></span>
+        </div>
+        <div class="calc-row">
+          <div class="calc-row-label">
+            Länge pro Träger
+            <span class="sub">Spannweite in m</span>
+          </div>
+          <input type="text" inputmode="decimal" class="calc-input" id="traegerLength" placeholder="z.B. 5,5">
+          <span class="calc-unit">m</span>
+          <span></span>
+        </div>
+      </div>
+
+      <div class="calc-section">
+        <div class="calc-section-head">
+          <span class="calc-section-num">3</span>
+          <span class="calc-section-title">Brandschutzbekleidung</span>
+        </div>
+        <label class="brand-toggle-row" for="traegerBrandToggle">
+          <span class="brand-toggle-label">
+            Brandschutzbekleidung hinzufügen
+            <span class="sub">GKB-F oder Gipsfaser, kastenförmig</span>
+          </span>
+          <input type="checkbox" class="toggle-switch" id="traegerBrandToggle">
+        </label>
+        <div class="brand-fields" id="traegerBrandFields"></div>
+      </div>
+
+      <div class="calc-section result">
+        <div class="calc-section-head">
+          <span class="calc-section-num">∑</span>
+          <span class="calc-section-title">Ergebnis</span>
+        </div>
+        <div class="calc-block">
+          <div class="calc-block-title">Stahl</div>
+          <div id="traegerSteelResult"></div>
+        </div>
+        <div class="calc-block" id="traegerBrandBlock" style="display:none">
+          <div class="calc-block-title">Brandschutzbekleidung</div>
+          <div id="traegerBrandResult"></div>
+        </div>
+        <div class="calc-total">
+          <span class="calc-total-label">Stahl gesamt</span>
+          <span class="calc-total-value" id="traegerSteelTotal">— <span class="unit">kg</span></span>
+        </div>
+        <div class="calc-total" id="traegerBrandTotal" style="display:none; margin-top:8px; background: var(--slate)">
+          <span class="calc-total-label">Bekleidung gesamt</span>
+          <span class="calc-total-value" id="traegerBrandTotalValue">— <span class="unit">kg</span></span>
+        </div>
+        <div class="calc-epd">
+          <span class="calc-epd-label">QNG</span>
+          <span class="calc-epd-code">
+            2.5
+            <span class="name">Stahlprofil</span>
+          </span>
+          <button class="copy-btn" type="button" data-epd-copy="2.5">Kopieren</button>
+        </div>
+        <div class="calc-epd" id="traegerBrandEpd" style="display:none">
+          <span class="calc-epd-label">QNG</span>
+          <span class="calc-epd-code" id="traegerBrandEpdCode"></span>
+          <button class="copy-btn" type="button" id="traegerBrandEpdCopy">Kopieren</button>
+        </div>
+        <div class="calc-action-row">
+          <button class="btn btn-text" type="button" data-stat-reset="traeger">Zurücksetzen</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sub-Sektion: Schwelle & Rähm -->
+    <div class="statics-sub" data-stat-sub="schwelle">
+      <div class="subnav-bar show">
+        <button class="subnav-back" type="button" data-stat-back>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <span>Auswahl</span>
+        </button>
+        <span class="subnav-title">Schwelle &amp; Rähm</span>
+      </div>
+
+      <div class="calc-section">
+        <div class="calc-section-head">
+          <span class="calc-section-num">1</span>
+          <span class="calc-section-title">Querschnitte und Längen</span>
+          <span class="calc-section-sub">Standard 8 × 24 cm</span>
+        </div>
+        <div class="timber-row-head">
+          <div>Bauteil</div>
+          <div>Breite</div>
+          <div>Höhe</div>
+          <div>Laufmeter</div>
+          <div></div>
+        </div>
+        <div class="timber-row">
+          <div class="timber-row-label">Schwelle<span class="sub">unten</span></div>
+          <input type="text" inputmode="decimal" class="calc-input" data-timber="schwelle:b" value="8">
+          <input type="text" inputmode="decimal" class="calc-input" data-timber="schwelle:h" value="24">
+          <input type="text" inputmode="decimal" class="calc-input lfm" data-timber="schwelle:l" placeholder="z.B. 40">
+          <span class="timber-row-suffix">m</span>
+        </div>
+        <div class="timber-row">
+          <div class="timber-row-label">Rähm<span class="sub">oben</span></div>
+          <input type="text" inputmode="decimal" class="calc-input" data-timber="raehm:b" value="8">
+          <input type="text" inputmode="decimal" class="calc-input" data-timber="raehm:h" value="24">
+          <input type="text" inputmode="decimal" class="calc-input lfm" data-timber="raehm:l" placeholder="z.B. 40">
+          <span class="timber-row-suffix">m</span>
+        </div>
+        <div class="field-hint">Breite × Höhe in cm. Standard 8 × 24 — beide editierbar.</div>
+      </div>
+
+      <div class="calc-section result">
+        <div class="calc-section-head">
+          <span class="calc-section-num">∑</span>
+          <span class="calc-section-title">Ergebnis</span>
+          <span class="calc-section-sub">Konstruktionsvollholz</span>
+        </div>
+        <div class="calc-block">
+          <div class="calc-block-title">Berechnung</div>
+          <div id="schwelleResult"></div>
+        </div>
+        <div class="calc-total">
+          <span class="calc-total-label">Volumen Holz</span>
+          <span class="calc-total-value" id="schwelleTotal">— <span class="unit">m³</span></span>
+        </div>
+        <div class="calc-epd">
+          <span class="calc-epd-label">QNG</span>
+          <span class="calc-epd-code">
+            3.5
+            <span class="name">Konstruktionsvollholz (Durchschnitt DE)</span>
+          </span>
+          <button class="copy-btn" type="button" data-epd-copy="3.5">Kopieren</button>
+        </div>
+        <div class="calc-action-row">
+          <button class="btn btn-text" type="button" data-stat-reset="schwelle">Zurücksetzen</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sub-Sektion: Pfetten -->
+    <div class="statics-sub" data-stat-sub="pfetten">
+      <div class="subnav-bar show">
+        <button class="subnav-back" type="button" data-stat-back>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <span>Auswahl</span>
+        </button>
+        <span class="subnav-title">Pfetten</span>
+      </div>
+
+      <div class="calc-section">
+        <div class="calc-section-head">
+          <span class="calc-section-num">1</span>
+          <span class="calc-section-title">Querschnitte und Längen</span>
+          <span class="calc-section-sub">je Pfette anders</span>
+        </div>
+        <div class="timber-row-head">
+          <div>Bauteil</div>
+          <div>Breite</div>
+          <div>Höhe</div>
+          <div>Laufmeter</div>
+          <div></div>
+        </div>
+        <div class="timber-row">
+          <div class="timber-row-label">Fußpfette<span class="sub">Standard 20×24</span></div>
+          <input type="text" inputmode="decimal" class="calc-input" data-timber="fuss:b" value="20">
+          <input type="text" inputmode="decimal" class="calc-input" data-timber="fuss:h" value="24">
+          <input type="text" inputmode="decimal" class="calc-input lfm" data-timber="fuss:l" placeholder="z.B. 12">
+          <span class="timber-row-suffix">m</span>
+        </div>
+        <div class="timber-row">
+          <div class="timber-row-label">Firstpfette<span class="sub">Standard 20×36</span></div>
+          <input type="text" inputmode="decimal" class="calc-input" data-timber="first:b" value="20">
+          <input type="text" inputmode="decimal" class="calc-input" data-timber="first:h" value="36">
+          <input type="text" inputmode="decimal" class="calc-input lfm" data-timber="first:l" placeholder="z.B. 6">
+          <span class="timber-row-suffix">m</span>
+        </div>
+        <div class="field-hint">Breite × Höhe in cm. Defaults editierbar.</div>
+      </div>
+
+      <div class="calc-section result">
+        <div class="calc-section-head">
+          <span class="calc-section-num">∑</span>
+          <span class="calc-section-title">Ergebnis</span>
+          <span class="calc-section-sub">Konstruktionsvollholz</span>
+        </div>
+        <div class="calc-block">
+          <div class="calc-block-title">Berechnung</div>
+          <div id="pfettenResult"></div>
+        </div>
+        <div class="calc-total">
+          <span class="calc-total-label">Volumen Holz</span>
+          <span class="calc-total-value" id="pfettenTotal">— <span class="unit">m³</span></span>
+        </div>
+        <div class="calc-epd">
+          <span class="calc-epd-label">QNG</span>
+          <span class="calc-epd-code">
+            3.5
+            <span class="name">Konstruktionsvollholz (Durchschnitt DE)</span>
+          </span>
+          <button class="copy-btn" type="button" data-epd-copy="3.5">Kopieren</button>
+        </div>
+        <div class="calc-action-row">
+          <button class="btn btn-text" type="button" data-stat-reset="pfetten">Zurücksetzen</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="source-note">
+      Quellen: DIN 1025 / EN 10365 (HEA, HEB, HEM, IPE) · QNG-Rechenwerte 2023 v1.3
+    </div>
+  </section>
+
 </div>
 
 <!-- ─────────────────────────────────────────────────────────────
-     MODALS
+     MODALS (shared, used by the Search screen)
      ───────────────────────────────────────────────────────────── -->
 
 <div class="modal" id="matModal" aria-hidden="true" role="dialog">
