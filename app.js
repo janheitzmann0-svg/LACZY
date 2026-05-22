@@ -3225,6 +3225,7 @@ function renderSection(n){
 
 // ─── Sektion 1: Objektdaten ─────────────────────────────────────────
 function renderSection1(p){
+  clearChildren(wizardContainer);
   // Vorhaben — nur für Neubau-Pfad
   if (p.path === "neubau"){
     const c1 = makeStepCard("Vorhaben");
@@ -3337,6 +3338,7 @@ function renderSection1(p){
 
 // ─── Sektion 2: Maße ────────────────────────────────────────────────
 function renderSection2(p){
+  clearChildren(wizardContainer);
   // Grundrisse-Check
   const cChk = makeStepCard("");
   // Wir nutzen die ganze Karte als Checkbox-Row, deshalb step-card-label leer + minimaler padding
