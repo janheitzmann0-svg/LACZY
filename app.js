@@ -3050,12 +3050,12 @@ function openNewProjectModal(){
   projektNewError.textContent = "";
   projektNewError.hidden = true;
   projektNewModal.setAttribute("aria-hidden", "false");
-  projektNewModal.classList.add("show");
+  projektNewModal.classList.add("open");
   setTimeout(() => projektNewName.focus(), 50);
 }
 function closeNewProjectModal(){
   projektNewModal.setAttribute("aria-hidden", "true");
-  projektNewModal.classList.remove("show");
+  projektNewModal.classList.remove("open");
 }
 function updatePathPills(){
   const pills = projektNewPathPills.querySelectorAll("[data-pn-path]");
@@ -3621,11 +3621,11 @@ function makeFieldCol(label, suffix, value, onInput){
 function openProjektBackupModal(){
   projektBackupCount.textContent = projects.length;
   projektBackupModal.setAttribute("aria-hidden", "false");
-  projektBackupModal.classList.add("show");
+  projektBackupModal.classList.add("open");
 }
 function closeProjektBackupModal(){
   projektBackupModal.setAttribute("aria-hidden", "true");
-  projektBackupModal.classList.remove("show");
+  projektBackupModal.classList.remove("open");
 }
 
 function exportProjects(){
@@ -3765,6 +3765,6 @@ projektBackupModal.querySelectorAll("[data-close]").forEach(el => {
 // ESC schließt offene Projekt-Modals
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  if (projektNewModal.classList.contains("show")) closeNewProjectModal();
-  if (projektBackupModal.classList.contains("show")) closeProjektBackupModal();
+  if (projektNewModal.classList.contains("open")) closeNewProjectModal();
+  if (projektBackupModal.classList.contains("open")) closeProjektBackupModal();
 });
