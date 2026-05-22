@@ -1,4 +1,70 @@
 // ════════════════════════════════════════════════════════════════════════════
+// VERSION WATCHDOG — verhindert Mischversionen nach Cache-Update
+// ════════════════════════════════════════════════════════════════════════════
+// Wenn der Browser eine alte index.html mit einer neuen app.js kombiniert
+// (oder umgekehrt), erkennen wir das hier und erzwingen einen Reload mit
+// Cache-Umgehung. Verhindert "geht plötzlich nichts mehr"-Symptome.
+const LACZY_JS_VERSION = "laczy-v4.4.1";
+(function versionWatchdog(){
+  try {
+    // Notfall-Reset via URL-Parameter: ?reset=1 leert Cache und lädt neu
+    if (location.search.indexOf("reset=1") !== -1){
+      const doReset = () => {
+        if ("caches" in window){
+          caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
+                       .finally(() => {
+                         if ("serviceWorker" in navigator){
+                           navigator.serviceWorker.getRegistrations().then(regs =>
+                             Promise.all(regs.map(r => r.unregister()))
+                           ).finally(() => {
+                             location.replace(location.pathname);
+                           });
+                         } else {
+                           location.replace(location.pathname);
+                         }
+                       });
+        } else {
+          location.replace(location.pathname);
+        }
+      };
+      doReset();
+      return;
+    }
+
+    const htmlVer = document.body && document.body.getAttribute("data-laczy-html-version");
+    if (!htmlVer) {
+      // Altes HTML ohne Versions-Marker — einmaliger Zwangs-Reload mit Cache-Leerung.
+      if (!sessionStorage.getItem("laczy_force_reload_done")) {
+        sessionStorage.setItem("laczy_force_reload_done", "1");
+        if ("caches" in window) {
+          caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
+                       .finally(() => window.location.reload());
+          return;
+        }
+        window.location.reload();
+        return;
+      }
+    } else if (htmlVer !== LACZY_JS_VERSION) {
+      // Mismatch: HTML und JS aus verschiedenen Versionen.
+      if (!sessionStorage.getItem("laczy_force_reload_done")) {
+        sessionStorage.setItem("laczy_force_reload_done", "1");
+        if ("caches" in window) {
+          caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
+                       .finally(() => window.location.reload());
+          return;
+        }
+        window.location.reload();
+        return;
+      }
+    } else {
+      sessionStorage.removeItem("laczy_force_reload_done");
+    }
+  } catch (e) {
+    // Watchdog-Fehler darf App nicht stoppen
+  }
+})();
+
+// ════════════════════════════════════════════════════════════════════════════
 // FIRST ORDER — QNG-Rechenwerte 2023 v1.3 (388 entries, 10 categories)
 // SECOND ORDER — Hersteller-Standardliste
 // ════════════════════════════════════════════════════════════════════════════

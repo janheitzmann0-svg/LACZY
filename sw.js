@@ -2,7 +2,7 @@
 // Strategie: Cache-First für die App-Shell. Voll offline-fähig nach erstem Laden.
 // Cross-Origin-Anfragen werden auf eine explizite Whitelist beschränkt.
 
-const VERSION = 'laczy-v4.4.0';
+const VERSION = 'laczy-v4.4.1';
 const CACHE = `laczy-cache-${VERSION}`;
 
 // Alle für den Offline-Betrieb benötigten Dateien (Same-Origin).
@@ -49,6 +49,12 @@ self.addEventListener('activate', (event) => {
 });
 
 // ─── Fetch-Strategie ─────────────────────────────────────────────────
+// Strategie nach Asset-Typ:
+//   - HTML + app.js: Network-First (verhindert Mischversionen nach Update)
+//   - Bilder, Icons, manifest, Fonts: Cache-First (Offline-Performance)
+const NETWORK_FIRST_RE = /\.(html|js)$/i;
+const NETWORK_FIRST_EXACT = new Set(['', '/']);  // root '/'
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -61,20 +67,29 @@ self.addEventListener('fetch', (event) => {
 
   // Same-Origin
   if (url.origin === self.location.origin) {
-    // Navigationsanfragen
-    if (req.mode === 'navigate') {
+    const path = url.pathname;
+    const fileName = path.substring(path.lastIndexOf('/') + 1);
+    const isNetworkFirst = req.mode === 'navigate' ||
+                           NETWORK_FIRST_RE.test(fileName) ||
+                           NETWORK_FIRST_EXACT.has(fileName);
+
+    if (isNetworkFirst) {
+      // Network-First: immer versuchen, frisch zu laden. Cache nur als Offline-Fallback.
       event.respondWith(
         fetch(req)
           .then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
+            if (res && res.ok) {
+              const copy = res.clone();
+              caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+            }
             return res;
           })
-          .catch(() => caches.match('./index.html').then((r) => r || caches.match('./')))
+          .catch(() => caches.match(req).then((r) => r || caches.match('./index.html')))
       );
       return;
     }
-    // Statische Assets
+
+    // Cache-First für statische Assets (Bilder, Manifest)
     event.respondWith(
       caches.match(req).then((cached) => {
         if (cached) {
