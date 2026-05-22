@@ -318,6 +318,335 @@ body::before{
 .tool-card.card-gutter{ --card-color: var(--slate-deep); --card-tint: var(--slate-tint); --card-glow: rgba(79,100,113,0.10) }
 .tool-card.card-sill{   --card-color: var(--copper-deep); --card-tint: var(--copper-tint); --card-glow: rgba(160,98,58,0.10) }
 .tool-card.card-stat{   --card-color: var(--text); --card-tint: rgba(42,47,38,0.06); --card-glow: rgba(42,47,38,0.08) }
+.tool-card.card-projekt{
+  --card-color: var(--terra-deep);
+  --card-tint: var(--terra-tint);
+  --card-glow: var(--terra-glow);
+  grid-column: 1 / -1;
+}
+
+/* ═════ Projektkartei ═════════════════════════════════════════════ */
+
+.project-overview-bar{
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 14px;
+}
+.project-overview-bar .actions{ display: flex; gap: 8px }
+.project-overview-bar .icon-btn{
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; cursor: pointer;
+  color: var(--text-2); display: inline-flex; align-items: center;
+}
+.project-overview-bar .icon-btn:hover{ border-color: var(--border-2); color: var(--text) }
+.project-overview-bar .icon-btn svg{ width: 18px; height: 18px }
+
+.project-new-btn{
+  width: 100%;
+  background: var(--terra-deep); color: var(--surface);
+  border: none; border-radius: 12px;
+  padding: 14px 16px; cursor: pointer;
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-body); font-size: 14px; font-weight: 500;
+  margin-bottom: 12px;
+  transition: background .15s;
+}
+.project-new-btn:hover{ background: var(--terra) }
+.project-new-btn svg{ width: 18px; height: 18px }
+
+.project-list{ display: flex; flex-direction: column; gap: 10px; margin-bottom: 1.5rem }
+
+.project-empty{
+  background: var(--surface); border: 1px dashed var(--border-2);
+  border-radius: 12px; padding: 24px 16px;
+  text-align: center; color: var(--text-2); font-size: 13px;
+}
+.project-empty .em-title{
+  font-family: var(--font-display); font-size: 16px; color: var(--text);
+  margin-bottom: 4px;
+}
+
+.project-item{
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px;
+  display: flex; align-items: center; gap: 12px;
+  cursor: pointer; transition: all .15s;
+  text-align: left; font-family: var(--font-body);
+}
+.project-item:hover{ border-color: var(--border-2); box-shadow: var(--shadow-soft) }
+.project-item .pi-body{ flex: 1; min-width: 0 }
+.project-item .pi-title{
+  font-family: var(--font-display);
+  font-size: 17px; font-weight: 500;
+  color: var(--text); line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.project-item .pi-meta{
+  font-size: 11px; color: var(--text-2);
+  margin-top: 3px; font-family: var(--font-mono); letter-spacing: 0.02em;
+}
+.project-item .pi-badge{
+  font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  font-weight: 500; padding: 3px 8px; border-radius: 4px;
+  font-family: var(--font-body);
+}
+.project-item .pi-badge.full{ background: var(--sage-glow); color: var(--sage-deep) }
+.project-item .pi-badge.wip{  background: var(--terra-tint); color: var(--terra-deep) }
+.project-item .pi-badge.empty{ background: var(--surface-2); color: var(--text-3) }
+.project-item .pi-arrow{
+  color: var(--text-3); display: inline-flex; padding: 4px;
+}
+.project-item .pi-arrow svg{ width: 16px; height: 16px }
+
+/* ── Wizard Shell ────────────────────────────────────────────── */
+
+.wizard-crumb{
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--text-2);
+  margin-bottom: 12px; flex-wrap: wrap;
+}
+.wizard-crumb .crumb-back{
+  background: none; border: none; color: var(--text-2);
+  cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; font-family: var(--font-body);
+}
+.wizard-crumb .crumb-back:hover{ color: var(--text) }
+.wizard-crumb .crumb-back svg{ width: 14px; height: 14px }
+.wizard-crumb .sep{ color: var(--text-3) }
+.wizard-crumb .crumb-project{ color: var(--terra-deep); font-weight: 500 }
+
+.wizard-progress{
+  display: flex; gap: 4px; margin-bottom: 18px;
+}
+.wizard-progress .seg{
+  flex: 1; height: 3px; background: var(--border);
+  border-radius: 2px;
+  transition: background .2s;
+  cursor: pointer; border: none; padding: 0;
+}
+.wizard-progress .seg.done{ background: var(--terra-deep) }
+.wizard-progress .seg.active{ background: var(--terra-deep) }
+
+.wizard-step-label{
+  font-size: 11px; color: var(--text-2);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  font-weight: 500;
+  font-family: var(--font-mono);
+}
+.wizard-step-title{
+  font-family: var(--font-display);
+  font-size: 26px; font-weight: 400;
+  font-variation-settings: "opsz" 100, "SOFT" 50;
+  letter-spacing: -0.01em;
+  color: var(--text); line-height: 1.1;
+  margin: 4px 0 18px;
+}
+
+.step-card{
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px;
+  margin-bottom: 10px;
+}
+.step-card-label{
+  font-size: 12px; color: var(--text-2);
+  margin-bottom: 10px; font-weight: 500;
+}
+.step-card-hint{
+  font-size: 10px; color: var(--text-3);
+  font-weight: 400; margin-left: 4px;
+}
+.step-card .checkbox-row{
+  display: flex; align-items: center; gap: 10px;
+  cursor: pointer; margin: -16px; padding: 14px 16px;
+  border-radius: 12px;
+}
+.step-card .checkbox-row .box{
+  width: 20px; height: 20px;
+  border: 1px solid var(--border-2);
+  border-radius: 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface);
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.step-card .checkbox-row .box svg{
+  width: 14px; height: 14px; opacity: 0;
+  color: var(--surface); stroke-width: 3;
+}
+.step-card .checkbox-row.checked .box{
+  background: var(--sage); border-color: var(--sage);
+}
+.step-card .checkbox-row.checked .box svg{ opacity: 1 }
+.step-card .checkbox-row .label{ font-size: 14px; color: var(--text) }
+
+/* Option pills (Vorhaben, Gebäudetyp, Fördergelder etc.) */
+.option-pills{
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.option-pill{
+  background: none; border: 1px solid var(--border-2);
+  color: var(--text); padding: 7px 14px;
+  border-radius: 8px; cursor: pointer;
+  font-family: var(--font-body); font-size: 13px;
+  transition: all .15s;
+}
+.option-pill:hover{ border-color: var(--text-2) }
+.option-pill.active{
+  background: var(--terra-deep); color: var(--surface);
+  border-color: var(--terra-deep); font-weight: 500;
+}
+.option-pill.active-sage{
+  background: var(--sage); color: var(--surface);
+  border-color: var(--sage); font-weight: 500;
+}
+
+/* Inputs im Wizard */
+.wiz-input{
+  width: 100%;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border-2);
+  border-radius: 8px; padding: 9px 12px;
+  font-family: var(--font-body); font-size: 13px;
+  box-sizing: border-box;
+  transition: border-color .15s;
+}
+.wiz-input:focus{ outline: none; border-color: var(--terra) }
+.wiz-input.mono{ font-family: var(--font-mono); font-size: 13px }
+textarea.wiz-input{ resize: vertical; min-height: 60px; line-height: 1.4 }
+
+/* Geschoss-Liste */
+.geschoss-list{ display: flex; flex-direction: column; gap: 6px }
+.geschoss-row{
+  display: grid;
+  grid-template-columns: 70px 1fr 50px 28px;
+  gap: 10px; align-items: center;
+}
+.geschoss-row .g-label{
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-2);
+}
+.geschoss-row .g-suffix{
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+}
+.x-btn{
+  background: none; border: none; color: var(--text-3);
+  cursor: pointer; padding: 4px; border-radius: 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: all .15s;
+}
+.x-btn:hover{ color: var(--terra-deep); background: var(--terra-tint) }
+.x-btn svg{ width: 14px; height: 14px }
+
+.add-row-btn{
+  width: 100%;
+  background: none; color: var(--terra-deep);
+  border: 1px dashed rgba(168,104,64,0.45);
+  border-radius: 8px; padding: 9px;
+  cursor: pointer;
+  font-family: var(--font-body); font-size: 12px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin-top: 10px;
+  transition: all .15s;
+}
+.add-row-btn:hover{
+  background: var(--terra-tint);
+  border-color: var(--terra-deep);
+}
+.add-row-btn svg{ width: 14px; height: 14px }
+
+/* Dach-Listen */
+.dach-list{ display: flex; flex-direction: column; gap: 8px }
+.dach-row{
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+.dach-row-head{
+  display: grid; grid-template-columns: 1fr 28px;
+  gap: 8px; align-items: center; margin-bottom: 8px;
+}
+.dach-fields{
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
+}
+.dach-fields .f-col{ display: flex; flex-direction: column; gap: 3px }
+.dach-fields .f-label{ font-size: 10px; color: var(--text-3) }
+
+/* Custom select look (matches wiz-input) */
+select.wiz-input{
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><polyline fill='none' stroke='%236b7466' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' points='1,1.5 6,6.5 11,1.5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+}
+
+/* Wizard navigation footer */
+.wizard-nav{
+  display: flex; justify-content: space-between; gap: 10px;
+  margin-top: 18px;
+}
+.wizard-nav .btn{ font-size: 13px; padding: 10px 16px; display: inline-flex; align-items: center; gap: 6px }
+.wizard-nav .btn svg{ width: 14px; height: 14px }
+.wizard-nav .btn-primary{
+  background: var(--text); color: var(--surface);
+  border: 1px solid var(--text);
+}
+.wizard-nav .btn-primary:hover{ background: var(--text-2); border-color: var(--text-2) }
+.wizard-nav .btn-text{
+  background: none; color: var(--text);
+  border: 1px solid var(--border-2);
+}
+.wizard-nav .btn-text:hover{ border-color: var(--text-2) }
+.wizard-nav .btn-export{
+  background: var(--sage); color: var(--surface);
+  border: 1px solid var(--sage);
+}
+.wizard-nav .btn-export:hover{ background: var(--sage-deep); border-color: var(--sage-deep) }
+
+/* Placeholder für noch nicht implementierte Sektionen */
+.placeholder-step{
+  background: var(--surface); border: 1px dashed var(--border-2);
+  border-radius: 12px; padding: 32px 20px;
+  text-align: center; color: var(--text-2);
+}
+.placeholder-step .ps-icon{ color: var(--text-3); margin-bottom: 10px }
+.placeholder-step .ps-icon svg{ width: 28px; height: 28px }
+.placeholder-step .ps-title{
+  font-family: var(--font-display); font-size: 18px;
+  color: var(--text); margin-bottom: 6px;
+}
+.placeholder-step .ps-text{ font-size: 13px; line-height: 1.45 }
+
+/* Sektions-Quick-Jump (oberhalb des Progress) */
+.section-jump{
+  display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px;
+}
+.section-jump .sj{
+  font-family: var(--font-mono); font-size: 10px;
+  background: none; border: 1px solid var(--border);
+  color: var(--text-3); padding: 3px 7px;
+  border-radius: 4px; cursor: pointer;
+  transition: all .12s;
+}
+.section-jump .sj:hover{ border-color: var(--border-2); color: var(--text-2) }
+.section-jump .sj.active{
+  background: var(--terra-deep); color: var(--surface);
+  border-color: var(--terra-deep);
+}
+.section-jump .sj.done{
+  background: var(--surface);
+  color: var(--terra-deep); border-color: var(--terra-tint);
+}
+
+.error-msg{
+  color: var(--terra-deep);
+  background: var(--terra-tint);
+  border: 1px solid rgba(168,104,64,0.30);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  margin-top: 10px;
+}
 
 /* App-bar 'home' brand — small inline LACZY title on tool screens */
 .appbar-brand{
@@ -1468,6 +1797,13 @@ body::before{
     grid-template-columns: 90px 54px 54px 1fr 22px;
     gap: 6px;
   }
+  /* Projektkartei mobile */
+  .wizard-step-title{ font-size: 22px }
+  .geschoss-row{ grid-template-columns: 56px 1fr 50px 28px; gap: 8px }
+  .dach-fields{ gap: 4px }
+  .dach-fields .f-label{ font-size: 9px }
+  .project-item .pi-title{ font-size: 15px }
+  .section-jump .sj{ font-size: 9px; padding: 2px 6px }
 }
 </style>
 </head>
@@ -1591,6 +1927,18 @@ body::before{
         </span>
         <span class="tool-title">Statik</span>
         <span class="tool-desc">Stahlstützen, Stahlträger, Schwelle/Rähm, Pfetten — inkl. Brandschutzbekleidung.</span>
+      </button>
+
+      <button class="tool-card card-projekt" type="button" data-tool="projekt">
+        <span class="tool-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+            <line x1="7" y1="13" x2="17" y2="13"/>
+            <line x1="7" y1="16" x2="13" y2="16"/>
+          </svg>
+        </span>
+        <span class="tool-title">Projektkartei</span>
+        <span class="tool-desc">Bauvorhaben strukturiert erfassen — Schritt für Schritt durch Objektdaten, Maße, Bauteile, Heizung und mehr. PDF-Ausgabe als Vorlage für die EcoCad-Eingabe.</span>
       </button>
     </div>
 
@@ -2508,6 +2856,75 @@ body::before{
     </div>
   </section>
 
+  <!-- ════════════════════════════════════════════════════════════
+       SCREEN: PROJEKTKARTEI
+       ════════════════════════════════════════════════════════════ -->
+  <section class="screen" data-screen="projekt" id="screen-projekt">
+
+    <!-- Übersicht: Projektliste -->
+    <div class="projekt-overview" id="projektOverview">
+      <div class="screen-header">
+        <h2>Projektkartei</h2>
+        <div class="lead">Bauvorhaben Schritt für Schritt erfassen — Standards anklicken, Freifelder ausfüllen, am Ende als PDF ausgeben. Mehrere Projekte parallel möglich.</div>
+      </div>
+
+      <div class="project-overview-bar">
+        <div class="actions">
+          <button class="icon-btn" id="projektBackupBtn" type="button" title="Backup / Datenbank" aria-label="Backup / Datenbank">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/>
+              <path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+              <path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <button class="project-new-btn" id="projektNewBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Neues Projekt anlegen
+      </button>
+
+      <div class="project-list" id="projektList"></div>
+
+      <div class="source-note">
+        Eigene Daten · liegen ausschließlich im Browser-Speicher dieses Geräts · Backup-Disziplin empfohlen
+      </div>
+    </div>
+
+    <!-- Wizard: ausgewähltes Projekt bearbeiten -->
+    <div class="projekt-wizard" id="projektWizard" hidden>
+      <div class="wizard-crumb">
+        <button class="crumb-back" id="wizardBack" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <span>Übersicht</span>
+        </button>
+        <span class="sep">·</span>
+        <span class="crumb-project" id="wizardProjectName">—</span>
+      </div>
+
+      <div class="section-jump" id="sectionJump"></div>
+      <div class="wizard-progress" id="wizardProgress"></div>
+
+      <div class="wizard-step-label" id="wizardStepLabel">Schritt 1 von 8</div>
+      <div class="wizard-step-title" id="wizardStepTitle">Objektdaten</div>
+
+      <div id="wizardSectionContainer"></div>
+
+      <div class="wizard-nav">
+        <button class="btn btn-text" id="wizardPrev" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Zurück
+        </button>
+        <button class="btn btn-primary" id="wizardNext" type="button">
+          Weiter
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+    </div>
+
+  </section>
+
 </div>
 
 <!-- ─────────────────────────────────────────────────────────────
@@ -2583,6 +3000,81 @@ body::before{
             <span>Setzt deine Materialliste auf leer zurück.</span>
           </div>
           <button class="btn btn-danger" id="wipeBtn" type="button">Löschen</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-text" data-close type="button">Schließen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Projektkartei: Neues Projekt anlegen -->
+<div class="modal" id="projektNewModal" aria-hidden="true" role="dialog">
+  <div class="modal-overlay" data-close></div>
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 id="projektNewTitle">Neues Projekt anlegen</h2>
+      <button class="modal-close" data-close aria-label="Schließen">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="intro">Erst der Pfad wählen — Neubau hat hinterlegte Standards, Sanierung ist überwiegend Freifelder, weil es im Altbau kaum einheitliche Aufbauten gibt.</p>
+
+      <div class="step-card">
+        <div class="step-card-label">Pfad</div>
+        <div class="option-pills" id="projektNewPathPills">
+          <button class="option-pill active" type="button" data-pn-path="neubau">Neubau</button>
+          <button class="option-pill" type="button" data-pn-path="sanierung">Sanierung</button>
+        </div>
+      </div>
+
+      <div class="step-card">
+        <div class="step-card-label">Projektname</div>
+        <input type="text" class="wiz-input" id="projektNewName" placeholder="z.B. Bauvorhaben Mustermann" maxlength="120">
+      </div>
+
+      <p class="error-msg" id="projektNewError" hidden></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-text" data-close type="button">Abbrechen</button>
+      <button class="btn btn-primary" id="projektNewSave" type="button">Anlegen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Projektkartei: Backup -->
+<div class="modal" id="projektBackupModal" aria-hidden="true" role="dialog">
+  <div class="modal-overlay" data-close></div>
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Projektkartei-Backup</h2>
+      <button class="modal-close" data-close aria-label="Schließen">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="intro">Deine Projektkarteien liegen lokal im Browser-Speicher dieses Geräts. Bei Browser-Reset oder Gerätewechsel sind sie weg — also regelmäßig exportieren.</p>
+
+      <div class="backup-actions">
+        <div class="backup-row">
+          <div class="row-text">
+            <strong>Exportieren</strong>
+            <span><span id="projektBackupCount">0</span> Projekte als JSON-Datei sichern</span>
+          </div>
+          <button class="btn btn-primary" id="projektExportBtn" type="button">Download</button>
+        </div>
+        <div class="backup-row">
+          <div class="row-text">
+            <strong>Importieren</strong>
+            <span>JSON-Datei einlesen. Achtung — bestehende Projekte werden ersetzt.</span>
+          </div>
+          <button class="btn btn-text" id="projektImportBtn" type="button">Datei wählen</button>
+          <input type="file" id="projektImportFile" accept=".json,application/json" style="display:none">
+        </div>
+        <div class="backup-row">
+          <div class="row-text">
+            <strong>Alle Projekte löschen</strong>
+            <span>Setzt die Projektkartei auf leer zurück.</span>
+          </div>
+          <button class="btn btn-danger" id="projektWipeBtn" type="button">Löschen</button>
         </div>
       </div>
     </div>

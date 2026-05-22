@@ -574,7 +574,7 @@ const toast = $("toast");
 // NAVIGATION — multi-screen shell (home + tool screens)
 // ════════════════════════════════════════════════════════════════════════════
 // Allowed screen names — keep tight; never derive from user input
-const VALID_SCREENS = new Set(["home", "search", "gutter", "sill", "statics"]);
+const VALID_SCREENS = new Set(["home", "search", "gutter", "sill", "statics", "projekt"]);
 let currentScreen = "home";
 
 const backBtn = $("backBtn");
@@ -2693,3 +2693,1078 @@ if (isIOS && !isStandalone){
     });
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROJECT REGISTRY — Projektkartei (Neubau + Sanierung)
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─── State + Storage ────────────────────────────────────────────────
+const PROJECT_STORAGE_KEY = "laczy_projects_v1";
+const MAX_PROJECTS = 200;
+const MAX_PROJECT_NAME_LEN = 120;
+const MAX_PROJECT_TEXT_LEN = 500;
+const MAX_PROJECT_FIELD_LEN = 60;
+const MAX_GESCHOSSE = 20;
+const MAX_DACHER = 12;
+const MAX_MASSNAHMEN = 30;
+const PROJECT_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+
+const PROJECT_PATHS = new Set(["neubau", "sanierung"]);
+const PROJECT_VORHABEN = new Set(["neubau", "anbau"]);
+const PROJECT_GEBTYP = new Set(["efh", "mfh"]);
+const PROJECT_FOERDER = new Set(["nein", "gewuenscht"]);
+
+const DACH_TYPEN = [
+  { key: "spitzdach", label: "Spitzdach" },
+  { key: "pultdach", label: "Pultdach" },
+  { key: "walmdach", label: "Walmdach" },
+  { key: "gaubendach", label: "Gaubendach" },
+  { key: "flachdach", label: "Flachdach" },
+  { key: "sonstiges", label: "Sonstiges" }
+];
+const DACH_TYP_KEYS = new Set(DACH_TYPEN.map(d => d.key));
+
+const PROJECT_SECTIONS = [
+  { n: 1, key: "objekt",     title: "Objektdaten" },
+  { n: 2, key: "masse",      title: "Maße" },
+  { n: 3, key: "bauteile",   title: "Bauteile" },
+  { n: 4, key: "heizung",    title: "Heizung & Warmwasser" },
+  { n: 5, key: "verteil",    title: "Verteilsystem" },
+  { n: 6, key: "lueftung",   title: "Lüftung" },
+  { n: 7, key: "pv",         title: "PV-Anlage" },
+  { n: 8, key: "huelle",     title: "Thermische Hülle" }
+];
+
+let projects = [];
+let activeProjectId = null;
+let currentSection = 1;
+
+// ─── Default-Geschosse je Pfad ──────────────────────────────────────
+function defaultGeschosse(){
+  return [
+    { key: "KG", value: "" },
+    { key: "EG", value: "" },
+    { key: "OG 1", value: "" },
+    { key: "OG 2", value: "" },
+    { key: "DG", value: "" }
+  ];
+}
+
+function defaultDaecher(){
+  return [
+    { typ: "spitzdach",  kniestock: "", neigung: "", ueberstand: "" },
+    { typ: "gaubendach", kniestock: "", neigung: "", ueberstand: "" }
+  ];
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────
+function genProjectId(){
+  return "p_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+}
+function nowISO(){ return new Date().toISOString(); }
+
+function sanitizeStr(v, maxLen){
+  if (typeof v !== "string") return "";
+  return v.slice(0, maxLen);
+}
+
+// Strikt: max length + nur ungefährliche Zeichen für Labels
+function sanitizeLabel(v, maxLen){
+  if (typeof v !== "string") return "";
+  return v.replace(/[^\wÄÖÜäöüß \-./]/g, "").slice(0, maxLen);
+}
+
+function createBlankProject(name, path){
+  return {
+    id: genProjectId(),
+    path: PROJECT_PATHS.has(path) ? path : "neubau",
+    name: sanitizeStr(name, MAX_PROJECT_NAME_LEN).trim() || "Neues Projekt",
+    createdAt: nowISO(),
+    updatedAt: nowISO(),
+
+    // Sektion 1 Objektdaten
+    vorhaben: null,        // "neubau" | "anbau"  (nur Neubau-Pfad)
+    gebTyp: null,          // "efh" | "mfh"
+    adresse: "",
+    foerder: null,         // "nein" | "gewuenscht"
+    // Sanierung-spezifisch
+    baujahr: "",
+    energieausweisVorhanden: false,
+    bisherigeMassnahmen: [],  // [{jahr, massnahme}]
+
+    // Sektion 2 Maße
+    grundrisseBemasst: false,
+    geschosse: defaultGeschosse(),
+    daecher: defaultDaecher(),
+
+    // Sektionen 3-8 — Platzhalter-Objekte, werden in späteren Etappen befüllt
+    bauteile: {},
+    heizung: {},
+    verteil: {},
+    lueftung: {},
+    pv: {},
+    huelle: {}
+  };
+}
+
+function sanitizeProject(raw){
+  if (!raw || typeof raw !== "object") return null;
+  const p = createBlankProject(raw.name, raw.path);
+  // ID übernehmen falls valide, sonst neu
+  if (typeof raw.id === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(raw.id)) p.id = raw.id;
+  if (typeof raw.createdAt === "string") p.createdAt = sanitizeStr(raw.createdAt, 40);
+  if (typeof raw.updatedAt === "string") p.updatedAt = sanitizeStr(raw.updatedAt, 40);
+
+  if (PROJECT_VORHABEN.has(raw.vorhaben)) p.vorhaben = raw.vorhaben;
+  if (PROJECT_GEBTYP.has(raw.gebTyp))     p.gebTyp   = raw.gebTyp;
+  p.adresse = sanitizeStr(raw.adresse, MAX_PROJECT_TEXT_LEN);
+  if (PROJECT_FOERDER.has(raw.foerder))   p.foerder  = raw.foerder;
+  p.baujahr = sanitizeStr(raw.baujahr, MAX_PROJECT_FIELD_LEN);
+  p.energieausweisVorhanden = !!raw.energieausweisVorhanden;
+  if (Array.isArray(raw.bisherigeMassnahmen)){
+    p.bisherigeMassnahmen = raw.bisherigeMassnahmen.slice(0, MAX_MASSNAHMEN).map(m => ({
+      jahr:      sanitizeStr(m && m.jahr,      8),
+      massnahme: sanitizeStr(m && m.massnahme, MAX_PROJECT_TEXT_LEN)
+    }));
+  }
+
+  p.grundrisseBemasst = !!raw.grundrisseBemasst;
+  if (Array.isArray(raw.geschosse)){
+    p.geschosse = raw.geschosse.slice(0, MAX_GESCHOSSE).map(g => ({
+      key:   sanitizeLabel(g && g.key, 12),
+      value: sanitizeStr(g && g.value, 12)
+    }));
+  }
+  if (Array.isArray(raw.daecher)){
+    p.daecher = raw.daecher.slice(0, MAX_DACHER).map(d => ({
+      typ:        DACH_TYP_KEYS.has(d && d.typ) ? d.typ : "spitzdach",
+      kniestock:  sanitizeStr(d && d.kniestock, 12),
+      neigung:    sanitizeStr(d && d.neigung,   12),
+      ueberstand: sanitizeStr(d && d.ueberstand, 12)
+    }));
+  }
+
+  // Sektionen 3-8 unverändert übernehmen, wenn Object — wird in späteren
+  // Etappen tiefer sanitisiert sobald wir die Schemata haben.
+  if (raw.bauteile && typeof raw.bauteile === "object") p.bauteile = raw.bauteile;
+  if (raw.heizung  && typeof raw.heizung  === "object") p.heizung  = raw.heizung;
+  if (raw.verteil  && typeof raw.verteil  === "object") p.verteil  = raw.verteil;
+  if (raw.lueftung && typeof raw.lueftung === "object") p.lueftung = raw.lueftung;
+  if (raw.pv       && typeof raw.pv       === "object") p.pv       = raw.pv;
+  if (raw.huelle   && typeof raw.huelle   === "object") p.huelle   = raw.huelle;
+
+  return p;
+}
+
+function loadProjects(){
+  try{
+    const raw = localStorage.getItem(PROJECT_STORAGE_KEY);
+    if (!raw) { projects = []; return; }
+    if (raw.length > PROJECT_IMPORT_MAX_BYTES) { projects = []; return; }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) { projects = []; return; }
+    const seen = new Set();
+    projects = [];
+    for (const item of parsed){
+      const s = sanitizeProject(item);
+      if (!s) continue;
+      if (seen.has(s.id)) s.id = genProjectId();
+      seen.add(s.id);
+      projects.push(s);
+      if (projects.length >= MAX_PROJECTS) break;
+    }
+  } catch(e){
+    projects = [];
+  }
+}
+
+function saveProjects(){
+  try{
+    localStorage.setItem(PROJECT_STORAGE_KEY, JSON.stringify(projects));
+  } catch(e){
+    showToast("Speicher voll — bitte alte Projekte löschen", "warn");
+  }
+}
+
+function findProject(id){
+  return projects.find(p => p.id === id) || null;
+}
+
+function touchActive(){
+  const p = findProject(activeProjectId);
+  if (!p) return;
+  p.updatedAt = nowISO();
+  saveProjects();
+}
+
+// Fortschritt — wie viele Sektionen haben Daten
+function sectionHasData(p, sectionKey){
+  if (!p) return false;
+  switch(sectionKey){
+    case "objekt":
+      if (p.path === "sanierung"){
+        return !!(p.adresse || p.foerder || p.gebTyp || p.baujahr ||
+                  p.energieausweisVorhanden || (p.bisherigeMassnahmen && p.bisherigeMassnahmen.length));
+      }
+      return !!(p.vorhaben || p.gebTyp || p.adresse || p.foerder);
+    case "masse":
+      if (p.grundrisseBemasst) return true;
+      if (p.geschosse && p.geschosse.some(g => g.value && g.value.trim())) return true;
+      if (p.daecher && p.daecher.some(d => d.kniestock || d.neigung || d.ueberstand)) return true;
+      return false;
+    default:
+      return false;  // Sektionen 3-8 noch nicht implementiert
+  }
+}
+
+function progressOf(p){
+  if (!p) return 0;
+  let c = 0;
+  for (const s of PROJECT_SECTIONS){
+    if (sectionHasData(p, s.key)) c++;
+  }
+  return c;
+}
+
+function formatProjectDate(iso){
+  if (!iso) return "—";
+  try{
+    const d = new Date(iso);
+    return d.toLocaleDateString("de-DE", { day: "numeric", month: "long" });
+  } catch(e){ return "—"; }
+}
+
+// ─── DOM-Refs ───────────────────────────────────────────────────────
+const projektOverview   = $("projektOverview");
+const projektWizard     = $("projektWizard");
+const projektListEl     = $("projektList");
+const projektNewBtn     = $("projektNewBtn");
+const projektBackupBtn  = $("projektBackupBtn");
+
+const projektNewModal   = $("projektNewModal");
+const projektNewName    = $("projektNewName");
+const projektNewSave    = $("projektNewSave");
+const projektNewError   = $("projektNewError");
+const projektNewPathPills = $("projektNewPathPills");
+let   projektNewPath    = "neubau";
+
+const projektBackupModal = $("projektBackupModal");
+const projektBackupCount = $("projektBackupCount");
+const projektExportBtn   = $("projektExportBtn");
+const projektImportBtn   = $("projektImportBtn");
+const projektImportFile  = $("projektImportFile");
+const projektWipeBtn     = $("projektWipeBtn");
+
+const wizardBackBtn     = $("wizardBack");
+const wizardPrevBtn     = $("wizardPrev");
+const wizardNextBtn     = $("wizardNext");
+const wizardProgressEl  = $("wizardProgress");
+const sectionJumpEl     = $("sectionJump");
+const wizardStepLabel   = $("wizardStepLabel");
+const wizardStepTitle   = $("wizardStepTitle");
+const wizardProjectName = $("wizardProjectName");
+const wizardContainer   = $("wizardSectionContainer");
+
+// ─── Projektliste rendern (Übersicht) ───────────────────────────────
+function renderProjectList(){
+  clearChildren(projektListEl);
+
+  if (!projects.length){
+    const empty = document.createElement("div");
+    empty.className = "project-empty";
+    const t = document.createElement("div");
+    t.className = "em-title";
+    t.textContent = "Noch keine Projekte angelegt";
+    const txt = document.createElement("div");
+    txt.textContent = "Tipp den Knopf oben, um dein erstes Bauvorhaben zu erfassen.";
+    empty.append(t, txt);
+    projektListEl.append(empty);
+    return;
+  }
+
+  // Nach updatedAt absteigend sortieren
+  const sorted = projects.slice().sort((a, b) =>
+    (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+
+  for (const p of sorted){
+    const item = document.createElement("button");
+    item.className = "project-item";
+    item.type = "button";
+    item.setAttribute("data-project-id", p.id);
+
+    const body = document.createElement("div");
+    body.className = "pi-body";
+    const title = document.createElement("div");
+    title.className = "pi-title";
+    title.textContent = p.name;
+    const meta = document.createElement("div");
+    meta.className = "pi-meta";
+    const pathLabel = p.path === "sanierung" ? "Sanierung" : "Neubau";
+    const gebTyp    = p.gebTyp ? p.gebTyp.toUpperCase() : null;
+    const prog      = progressOf(p);
+    const parts = [pathLabel];
+    if (gebTyp) parts.push(gebTyp);
+    parts.push(prog + " / " + PROJECT_SECTIONS.length + " Sektionen");
+    parts.push("zuletzt " + formatProjectDate(p.updatedAt));
+    meta.textContent = parts.join(" · ");
+    body.append(title, meta);
+
+    const badge = document.createElement("span");
+    if (prog === 0){
+      badge.className = "pi-badge empty";
+      badge.textContent = "leer";
+    } else if (prog === PROJECT_SECTIONS.length){
+      badge.className = "pi-badge full";
+      badge.textContent = "vollständig";
+    } else {
+      badge.className = "pi-badge wip";
+      badge.textContent = "in Arbeit";
+    }
+
+    const arrow = document.createElement("span");
+    arrow.className = "pi-arrow";
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const poly = document.createElementNS(svgNS, "polyline");
+    poly.setAttribute("points", "9 18 15 12 9 6");
+    svg.append(poly);
+    arrow.append(svg);
+
+    item.append(body, badge, arrow);
+    item.addEventListener("click", () => enterWizard(p.id));
+    projektListEl.append(item);
+  }
+}
+
+// ─── Neues-Projekt-Modal ────────────────────────────────────────────
+function openNewProjectModal(){
+  projektNewName.value = "";
+  projektNewPath = "neubau";
+  updatePathPills();
+  projektNewError.textContent = "";
+  projektNewError.hidden = true;
+  projektNewModal.setAttribute("aria-hidden", "false");
+  projektNewModal.classList.add("show");
+  setTimeout(() => projektNewName.focus(), 50);
+}
+function closeNewProjectModal(){
+  projektNewModal.setAttribute("aria-hidden", "true");
+  projektNewModal.classList.remove("show");
+}
+function updatePathPills(){
+  const pills = projektNewPathPills.querySelectorAll("[data-pn-path]");
+  pills.forEach(b => {
+    if (b.getAttribute("data-pn-path") === projektNewPath){
+      b.classList.add("active");
+    } else {
+      b.classList.remove("active");
+    }
+  });
+}
+function saveNewProject(){
+  const name = (projektNewName.value || "").trim();
+  if (!name){
+    projektNewError.textContent = "Bitte einen Namen vergeben.";
+    projektNewError.hidden = false;
+    return;
+  }
+  if (projects.length >= MAX_PROJECTS){
+    projektNewError.textContent = "Maximale Anzahl Projekte erreicht (" + MAX_PROJECTS + ").";
+    projektNewError.hidden = false;
+    return;
+  }
+  const p = createBlankProject(name, projektNewPath);
+  projects.push(p);
+  saveProjects();
+  closeNewProjectModal();
+  showToast("Projekt angelegt", "sage");
+  enterWizard(p.id);
+}
+
+// ─── Wizard-Shell ───────────────────────────────────────────────────
+function enterWizard(id){
+  const p = findProject(id);
+  if (!p) return;
+  activeProjectId = id;
+  currentSection = 1;
+  projektOverview.hidden = true;
+  projektWizard.hidden = false;
+  wizardProjectName.textContent = p.name;
+  renderWizardChrome();
+  renderSection(1);
+  // Smooth scroll to top of wizard
+  try { projektWizard.scrollIntoView({ behavior: "smooth", block: "start" }); } catch(e){}
+}
+
+function exitWizard(){
+  // Auto-Save passiert ohnehin bei jeder Änderung; hier nur UI-Wechsel
+  activeProjectId = null;
+  projektWizard.hidden = true;
+  projektOverview.hidden = false;
+  renderProjectList();
+}
+
+function renderWizardChrome(){
+  const p = findProject(activeProjectId);
+  if (!p) return;
+
+  // Progress-Bar mit 8 Segmenten
+  clearChildren(wizardProgressEl);
+  for (const s of PROJECT_SECTIONS){
+    const seg = document.createElement("button");
+    seg.type = "button";
+    seg.className = "seg";
+    if (s.n === currentSection) seg.classList.add("active");
+    else if (sectionHasData(p, s.key)) seg.classList.add("done");
+    seg.setAttribute("aria-label", "Sektion " + s.n + " " + s.title);
+    seg.addEventListener("click", () => { currentSection = s.n; renderWizardChrome(); renderSection(s.n); });
+    wizardProgressEl.append(seg);
+  }
+
+  // Section-Jump als Quick-Nav
+  clearChildren(sectionJumpEl);
+  for (const s of PROJECT_SECTIONS){
+    const sj = document.createElement("button");
+    sj.type = "button";
+    sj.className = "sj";
+    if (s.n === currentSection) sj.classList.add("active");
+    else if (sectionHasData(p, s.key)) sj.classList.add("done");
+    sj.textContent = s.n + ". " + s.title;
+    sj.addEventListener("click", () => { currentSection = s.n; renderWizardChrome(); renderSection(s.n); });
+    sectionJumpEl.append(sj);
+  }
+
+  wizardStepLabel.textContent = "Schritt " + currentSection + " von " + PROJECT_SECTIONS.length;
+  const sec = PROJECT_SECTIONS.find(s => s.n === currentSection);
+  wizardStepTitle.textContent = sec ? sec.title : "";
+
+  // Buttons: Zurück deaktivieren bei 1, Weiter / Abschließen bei 8
+  wizardPrevBtn.disabled = (currentSection === 1);
+  wizardPrevBtn.style.opacity = wizardPrevBtn.disabled ? "0.4" : "1";
+
+  // Bei Sektion 8: Knopf wird zu "Daten ausgeben"
+  if (currentSection === PROJECT_SECTIONS.length){
+    wizardNextBtn.classList.add("btn-export");
+    wizardNextBtn.classList.remove("btn-primary");
+    clearChildren(wizardNextBtn);
+    wizardNextBtn.append(document.createTextNode("Daten ausgeben"));
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const path1 = document.createElementNS(svgNS, "path");
+    path1.setAttribute("d", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4");
+    const poly = document.createElementNS(svgNS, "polyline");
+    poly.setAttribute("points", "7 10 12 15 17 10");
+    const line = document.createElementNS(svgNS, "line");
+    line.setAttribute("x1", "12"); line.setAttribute("y1", "15");
+    line.setAttribute("x2", "12"); line.setAttribute("y2", "3");
+    svg.append(path1, poly, line);
+    wizardNextBtn.append(svg);
+  } else {
+    wizardNextBtn.classList.remove("btn-export");
+    wizardNextBtn.classList.add("btn-primary");
+    clearChildren(wizardNextBtn);
+    wizardNextBtn.append(document.createTextNode("Weiter"));
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const poly = document.createElementNS(svgNS, "polyline");
+    poly.setAttribute("points", "9 18 15 12 9 6");
+    svg.append(poly);
+    wizardNextBtn.append(svg);
+  }
+}
+
+function wizardNext(){
+  const p = findProject(activeProjectId);
+  if (!p) return;
+  if (currentSection === PROJECT_SECTIONS.length){
+    // PDF-Export — kommt in späterer Etappe
+    showToast("PDF-Ausgabe kommt in einer der nächsten Etappen", "warn");
+    return;
+  }
+  currentSection++;
+  renderWizardChrome();
+  renderSection(currentSection);
+}
+function wizardPrev(){
+  if (currentSection <= 1) return;
+  currentSection--;
+  renderWizardChrome();
+  renderSection(currentSection);
+}
+
+// Universelle Section-Renderer-Dispatch
+function renderSection(n){
+  const p = findProject(activeProjectId);
+  if (!p){ clearChildren(wizardContainer); return; }
+  clearChildren(wizardContainer);
+
+  switch(n){
+    case 1: renderSection1(p); break;
+    case 2: renderSection2(p); break;
+    default: renderSectionPlaceholder(n); break;
+  }
+}
+
+// ─── Sektion 1: Objektdaten ─────────────────────────────────────────
+function renderSection1(p){
+  // Vorhaben — nur für Neubau-Pfad
+  if (p.path === "neubau"){
+    const c1 = makeStepCard("Vorhaben");
+    const pills = pillRow(["neubau", "anbau"], ["Neubau", "Anbau / Aufstockung"], p.vorhaben, (val) => {
+      p.vorhaben = (p.vorhaben === val) ? null : val;
+      touchActive();
+      renderSection1(p);
+      renderWizardChrome();
+    });
+    c1.append(pills);
+    wizardContainer.append(c1);
+  } else {
+    // Sanierung-spezifisch: Baujahr + Energieausweis
+    const c1 = makeStepCard("Baujahr Bestand");
+    const inp = document.createElement("input");
+    inp.type = "text"; inp.className = "wiz-input mono"; inp.maxLength = 8;
+    inp.placeholder = "z.B. 1962";
+    inp.value = p.baujahr || "";
+    inp.addEventListener("input", () => {
+      p.baujahr = sanitizeStr(inp.value, MAX_PROJECT_FIELD_LEN);
+      touchActive();
+      renderWizardChrome();
+    });
+    c1.append(inp);
+    wizardContainer.append(c1);
+
+    const c2 = makeStepCard("Energieausweis vorhanden");
+    const checkRow = makeCheckboxRow(p.energieausweisVorhanden, "Aktueller Energieausweis liegt vor", (v) => {
+      p.energieausweisVorhanden = v;
+      touchActive();
+      renderWizardChrome();
+    });
+    c2.append(checkRow);
+    wizardContainer.append(c2);
+
+    // Bisherige Maßnahmen — Liste
+    const c3 = makeStepCard("Bisherige Sanierungsmaßnahmen", "optional · Jahr + Maßnahme");
+    const list = document.createElement("div");
+    list.className = "geschoss-list";
+    p.bisherigeMassnahmen = p.bisherigeMassnahmen || [];
+    p.bisherigeMassnahmen.forEach((m, idx) => {
+      const row = document.createElement("div");
+      row.className = "geschoss-row";
+      row.style.gridTemplateColumns = "70px 1fr 28px";
+      const yIn = document.createElement("input");
+      yIn.type = "text"; yIn.className = "wiz-input mono"; yIn.maxLength = 8;
+      yIn.placeholder = "Jahr"; yIn.value = m.jahr || "";
+      yIn.addEventListener("input", () => { m.jahr = sanitizeStr(yIn.value, 8); touchActive(); });
+      const tIn = document.createElement("input");
+      tIn.type = "text"; tIn.className = "wiz-input"; tIn.maxLength = MAX_PROJECT_TEXT_LEN;
+      tIn.placeholder = "z.B. neue Heizung"; tIn.value = m.massnahme || "";
+      tIn.addEventListener("input", () => { m.massnahme = sanitizeStr(tIn.value, MAX_PROJECT_TEXT_LEN); touchActive(); });
+      const xBtn = makeXButton(() => {
+        p.bisherigeMassnahmen.splice(idx, 1);
+        touchActive();
+        renderSection1(p);
+      });
+      row.append(yIn, tIn, xBtn);
+      list.append(row);
+    });
+    c3.append(list);
+    const addBtn = makeAddButton("Maßnahme hinzufügen", () => {
+      if (p.bisherigeMassnahmen.length >= MAX_MASSNAHMEN){
+        showToast("Maximale Anzahl erreicht", "warn");
+        return;
+      }
+      p.bisherigeMassnahmen.push({ jahr: "", massnahme: "" });
+      touchActive();
+      renderSection1(p);
+    });
+    c3.append(addBtn);
+    wizardContainer.append(c3);
+  }
+
+  // Gebäudetyp (beide Pfade)
+  const cG = makeStepCard("Gebäudetyp", "steuert die Standard-Aufbauten ab Sektion 3");
+  const pGT = pillRow(["efh", "mfh"], ["EFH", "MFH"], p.gebTyp, (val) => {
+    p.gebTyp = (p.gebTyp === val) ? null : val;
+    touchActive();
+    renderSection1(p);
+    renderWizardChrome();
+  }, "active-sage");
+  cG.append(pGT);
+  wizardContainer.append(cG);
+
+  // Adresse
+  const cA = makeStepCard("Adresse");
+  const ta = document.createElement("textarea");
+  ta.className = "wiz-input"; ta.rows = 2; ta.maxLength = MAX_PROJECT_TEXT_LEN;
+  ta.placeholder = "Straße, Hausnr.\nPLZ Ort";
+  ta.value = p.adresse || "";
+  ta.addEventListener("input", () => {
+    p.adresse = sanitizeStr(ta.value, MAX_PROJECT_TEXT_LEN);
+    touchActive();
+  });
+  cA.append(ta);
+  wizardContainer.append(cA);
+
+  // Fördergelder
+  const cF = makeStepCard("Fördergelder");
+  const pF = pillRow(["nein", "gewuenscht"], ["nicht erforderlich", "gewünscht"], p.foerder, (val) => {
+    p.foerder = (p.foerder === val) ? null : val;
+    touchActive();
+    renderSection1(p);
+    renderWizardChrome();
+  });
+  cF.append(pF);
+  wizardContainer.append(cF);
+}
+
+// ─── Sektion 2: Maße ────────────────────────────────────────────────
+function renderSection2(p){
+  // Grundrisse-Check
+  const cChk = makeStepCard("");
+  // Wir nutzen die ganze Karte als Checkbox-Row, deshalb step-card-label leer + minimaler padding
+  cChk.querySelector(".step-card-label").remove();
+  const chkRow = makeCheckboxRow(p.grundrisseBemasst, "Grundrisse ausreichend bemaßt", (v) => {
+    p.grundrisseBemasst = v;
+    touchActive();
+    renderWizardChrome();
+  });
+  cChk.append(chkRow);
+  wizardContainer.append(cChk);
+
+  // Lichte Raumhöhe — Geschoss-Liste
+  const cG = makeStepCard("Lichte Raumhöhe", "OK FFB – UK Decke · in m");
+  const list = document.createElement("div");
+  list.className = "geschoss-list";
+  p.geschosse = p.geschosse || [];
+  p.geschosse.forEach((g, idx) => {
+    const row = document.createElement("div");
+    row.className = "geschoss-row";
+    // Label-Input
+    const lIn = document.createElement("input");
+    lIn.type = "text"; lIn.className = "wiz-input mono";
+    lIn.maxLength = 12;
+    lIn.value = g.key || "";
+    lIn.addEventListener("input", () => { g.key = sanitizeLabel(lIn.value, 12); touchActive(); renderWizardChrome(); });
+    // Wert-Input
+    const vIn = document.createElement("input");
+    vIn.type = "text"; vIn.className = "wiz-input mono";
+    vIn.maxLength = 12;
+    vIn.placeholder = "z.B. 2,50";
+    vIn.value = g.value || "";
+    vIn.addEventListener("input", () => { g.value = sanitizeStr(vIn.value, 12); touchActive(); renderWizardChrome(); });
+    // Einheit
+    const sfx = document.createElement("span");
+    sfx.className = "g-suffix"; sfx.textContent = "m";
+    // X-Button
+    const xBtn = makeXButton(() => {
+      p.geschosse.splice(idx, 1);
+      touchActive();
+      renderSection2(p);
+      renderWizardChrome();
+    });
+    row.append(lIn, vIn, sfx, xBtn);
+    list.append(row);
+  });
+  cG.append(list);
+  const addG = makeAddButton("Geschoss hinzufügen", () => {
+    if (p.geschosse.length >= MAX_GESCHOSSE){
+      showToast("Maximale Anzahl Geschosse erreicht", "warn");
+      return;
+    }
+    p.geschosse.push({ key: "", value: "" });
+    touchActive();
+    renderSection2(p);
+  });
+  cG.append(addG);
+  wizardContainer.append(cG);
+
+  // Dächer + Kniestock
+  const cD = makeStepCard("Dächer", "Typ wählen, dann Kniestock · Neigung · Überstand");
+  const dList = document.createElement("div");
+  dList.className = "dach-list";
+  p.daecher = p.daecher || [];
+  p.daecher.forEach((d, idx) => {
+    const row = document.createElement("div");
+    row.className = "dach-row";
+    // Head: Type-Select + Remove
+    const head = document.createElement("div");
+    head.className = "dach-row-head";
+    const sel = document.createElement("select");
+    sel.className = "wiz-input";
+    for (const t of DACH_TYPEN){
+      const opt = document.createElement("option");
+      opt.value = t.key; opt.textContent = t.label;
+      if (d.typ === t.key) opt.selected = true;
+      sel.append(opt);
+    }
+    sel.addEventListener("change", () => {
+      d.typ = DACH_TYP_KEYS.has(sel.value) ? sel.value : "spitzdach";
+      touchActive();
+      renderWizardChrome();
+    });
+    const xBtn = makeXButton(() => {
+      p.daecher.splice(idx, 1);
+      touchActive();
+      renderSection2(p);
+      renderWizardChrome();
+    });
+    head.append(sel, xBtn);
+    row.append(head);
+    // Fields: Kniestock | Neigung | Überstand
+    const fields = document.createElement("div");
+    fields.className = "dach-fields";
+    fields.append(
+      makeFieldCol("Kniestock", "cm", d.kniestock, (v) => { d.kniestock = sanitizeStr(v, 12); touchActive(); renderWizardChrome(); }),
+      makeFieldCol("Neigung",   "°",  d.neigung,   (v) => { d.neigung   = sanitizeStr(v, 12); touchActive(); renderWizardChrome(); }),
+      makeFieldCol("Überstand", "cm", d.ueberstand,(v) => { d.ueberstand= sanitizeStr(v, 12); touchActive(); renderWizardChrome(); })
+    );
+    row.append(fields);
+    dList.append(row);
+  });
+  cD.append(dList);
+  const addD = makeAddButton("Dach hinzufügen", () => {
+    if (p.daecher.length >= MAX_DACHER){
+      showToast("Maximale Anzahl Dächer erreicht", "warn");
+      return;
+    }
+    p.daecher.push({ typ: "spitzdach", kniestock: "", neigung: "", ueberstand: "" });
+    touchActive();
+    renderSection2(p);
+  });
+  cD.append(addD);
+  wizardContainer.append(cD);
+}
+
+// ─── Platzhalter Sektionen 3-8 ──────────────────────────────────────
+function renderSectionPlaceholder(n){
+  const sec = PROJECT_SECTIONS.find(s => s.n === n);
+  if (!sec) return;
+  const ph = document.createElement("div");
+  ph.className = "placeholder-step";
+  const icon = document.createElement("div");
+  icon.className = "ps-icon";
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.5");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const c = document.createElementNS(svgNS, "circle");
+  c.setAttribute("cx", "12"); c.setAttribute("cy", "12"); c.setAttribute("r", "9");
+  const l1 = document.createElementNS(svgNS, "line");
+  l1.setAttribute("x1", "12"); l1.setAttribute("y1", "8");
+  l1.setAttribute("x2", "12"); l1.setAttribute("y2", "12");
+  const l2 = document.createElementNS(svgNS, "line");
+  l2.setAttribute("x1", "12"); l2.setAttribute("y1", "16");
+  l2.setAttribute("x2", "12.01"); l2.setAttribute("y2", "16");
+  svg.append(c, l1, l2);
+  icon.append(svg);
+
+  const title = document.createElement("div");
+  title.className = "ps-title";
+  title.textContent = "Sektion " + n + " kommt in einer der nächsten Etappen";
+  const txt = document.createElement("div");
+  txt.className = "ps-text";
+  txt.textContent = "Diese Sektion (" + sec.title + ") wird im nächsten Schritt implementiert. Die Navigation und das Speichern funktionieren schon — du kannst weiterklicken, ohne dass etwas verloren geht.";
+  ph.append(icon, title, txt);
+  wizardContainer.append(ph);
+}
+
+// ─── DOM-Bau-Helper ─────────────────────────────────────────────────
+function makeStepCard(label, hint){
+  const card = document.createElement("div");
+  card.className = "step-card";
+  const lab = document.createElement("div");
+  lab.className = "step-card-label";
+  lab.textContent = label || "";
+  if (hint){
+    const h = document.createElement("span");
+    h.className = "step-card-hint";
+    h.textContent = "· " + hint;
+    lab.append(" ", h);
+  }
+  card.append(lab);
+  return card;
+}
+
+function pillRow(values, labels, currentVal, onClick, activeCls){
+  const wrap = document.createElement("div");
+  wrap.className = "option-pills";
+  values.forEach((v, i) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "option-pill";
+    if (v === currentVal) btn.classList.add(activeCls || "active");
+    btn.textContent = labels[i];
+    btn.addEventListener("click", () => onClick(v));
+    wrap.append(btn);
+  });
+  return wrap;
+}
+
+function makeCheckboxRow(checked, label, onChange){
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "checkbox-row";
+  if (checked) row.classList.add("checked");
+  const box = document.createElement("span");
+  box.className = "box";
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const poly = document.createElementNS(svgNS, "polyline");
+  poly.setAttribute("points", "5 12 10 17 19 7");
+  svg.append(poly);
+  box.append(svg);
+  const lab = document.createElement("span");
+  lab.className = "label";
+  lab.textContent = label;
+  row.append(box, lab);
+  row.addEventListener("click", () => {
+    const newVal = !row.classList.contains("checked");
+    if (newVal) row.classList.add("checked"); else row.classList.remove("checked");
+    onChange(newVal);
+  });
+  return row;
+}
+
+function makeXButton(onClick){
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "x-btn";
+  btn.setAttribute("aria-label", "Zeile entfernen");
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const l1 = document.createElementNS(svgNS, "line");
+  l1.setAttribute("x1", "18"); l1.setAttribute("y1", "6");
+  l1.setAttribute("x2", "6");  l1.setAttribute("y2", "18");
+  const l2 = document.createElementNS(svgNS, "line");
+  l2.setAttribute("x1", "6");  l2.setAttribute("y1", "6");
+  l2.setAttribute("x2", "18"); l2.setAttribute("y2", "18");
+  svg.append(l1, l2);
+  btn.append(svg);
+  btn.addEventListener("click", onClick);
+  return btn;
+}
+
+function makeAddButton(text, onClick){
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "add-row-btn";
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const l1 = document.createElementNS(svgNS, "line");
+  l1.setAttribute("x1", "12"); l1.setAttribute("y1", "5");
+  l1.setAttribute("x2", "12"); l1.setAttribute("y2", "19");
+  const l2 = document.createElementNS(svgNS, "line");
+  l2.setAttribute("x1", "5");  l2.setAttribute("y1", "12");
+  l2.setAttribute("x2", "19"); l2.setAttribute("y2", "12");
+  svg.append(l1, l2);
+  btn.append(svg, document.createTextNode(text));
+  btn.addEventListener("click", onClick);
+  return btn;
+}
+
+function makeFieldCol(label, suffix, value, onInput){
+  const col = document.createElement("div");
+  col.className = "f-col";
+  const lab = document.createElement("span");
+  lab.className = "f-label";
+  lab.textContent = suffix ? (label + " · " + suffix) : label;
+  const inp = document.createElement("input");
+  inp.type = "text";
+  inp.className = "wiz-input mono";
+  inp.maxLength = 12;
+  inp.value = value || "";
+  inp.addEventListener("input", () => onInput(inp.value));
+  col.append(lab, inp);
+  return col;
+}
+
+// ─── Backup-Modal ───────────────────────────────────────────────────
+function openProjektBackupModal(){
+  projektBackupCount.textContent = projects.length;
+  projektBackupModal.setAttribute("aria-hidden", "false");
+  projektBackupModal.classList.add("show");
+}
+function closeProjektBackupModal(){
+  projektBackupModal.setAttribute("aria-hidden", "true");
+  projektBackupModal.classList.remove("show");
+}
+
+function exportProjects(){
+  const blob = new Blob([JSON.stringify({
+    version: "laczy-projects-1",
+    exportedAt: nowISO(),
+    count: projects.length,
+    projects: projects
+  }, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const ts = new Date().toISOString().slice(0, 10);
+  a.download = "laczy-projekte-" + ts + ".json";
+  document.body.append(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showToast("Export erstellt", "sage");
+}
+
+function importProjects(file){
+  if (!file) return;
+  if (file.size > PROJECT_IMPORT_MAX_BYTES){
+    showToast("Datei zu groß (max. 5 MB)", "warn");
+    return;
+  }
+  const ok = file.type === "application/json" || /\.json$/i.test(file.name);
+  if (!ok){
+    showToast("Bitte eine .json-Datei wählen", "warn");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const text = String(reader.result || "");
+      if (text.length > PROJECT_IMPORT_MAX_BYTES){
+        showToast("Datei zu groß (max. 5 MB)", "warn");
+        return;
+      }
+      const data = JSON.parse(text);
+      const arr = Array.isArray(data) ? data : (Array.isArray(data && data.projects) ? data.projects : null);
+      if (!arr){
+        showToast("Format nicht erkannt", "warn");
+        return;
+      }
+      if (!confirm("Bestehende Projektkartei wird ersetzt. Fortfahren?")) return;
+      const out = [];
+      const seen = new Set();
+      for (const item of arr){
+        const s = sanitizeProject(item);
+        if (!s) continue;
+        if (seen.has(s.id)) s.id = genProjectId();
+        seen.add(s.id);
+        out.push(s);
+        if (out.length >= MAX_PROJECTS) break;
+      }
+      projects = out;
+      saveProjects();
+      projektBackupCount.textContent = projects.length;
+      renderProjectList();
+      showToast("Import erfolgreich · " + projects.length + " Projekte", "sage");
+    } catch(e){
+      showToast("Ungültige JSON-Datei", "warn");
+    }
+  };
+  reader.onerror = () => showToast("Datei konnte nicht gelesen werden", "warn");
+  reader.readAsText(file);
+}
+
+function wipeProjects(){
+  if (!projects.length){
+    showToast("Es gibt keine Projekte zum Löschen", "warn");
+    return;
+  }
+  if (!confirm("Wirklich alle " + projects.length + " Projekte löschen? Das kann nicht rückgängig gemacht werden.")) return;
+  projects = [];
+  saveProjects();
+  projektBackupCount.textContent = "0";
+  renderProjectList();
+  showToast("Alle Projekte gelöscht", "warn");
+}
+
+// ─── Wire-up ────────────────────────────────────────────────────────
+loadProjects();
+renderProjectList();
+
+// Home-Karte → Screen
+const projektCard = document.querySelector('[data-tool="projekt"]');
+if (projektCard){
+  projektCard.addEventListener("click", () => {
+    // Aus laufendem Wizard zurück zur Übersicht, dann zum Screen
+    activeProjectId = null;
+    projektWizard.hidden = true;
+    projektOverview.hidden = false;
+    renderProjectList();
+    navigateTo("projekt");
+  });
+}
+
+projektNewBtn.addEventListener("click", openNewProjectModal);
+projektBackupBtn.addEventListener("click", openProjektBackupModal);
+
+// Pfad-Pills im Modal
+projektNewPathPills.querySelectorAll("[data-pn-path]").forEach(b => {
+  b.addEventListener("click", () => {
+    projektNewPath = b.getAttribute("data-pn-path");
+    updatePathPills();
+  });
+});
+projektNewSave.addEventListener("click", saveNewProject);
+projektNewName.addEventListener("keydown", (e) => {
+  if (e.key === "Enter"){ e.preventDefault(); saveNewProject(); }
+});
+projektNewModal.querySelectorAll("[data-close]").forEach(el => {
+  el.addEventListener("click", closeNewProjectModal);
+});
+
+// Wizard-Navigation
+wizardBackBtn.addEventListener("click", exitWizard);
+wizardPrevBtn.addEventListener("click", wizardPrev);
+wizardNextBtn.addEventListener("click", wizardNext);
+
+// Backup-Modal-Buttons
+projektExportBtn.addEventListener("click", exportProjects);
+projektImportBtn.addEventListener("click", () => projektImportFile.click());
+projektImportFile.addEventListener("change", (e) => {
+  const f = e.target.files && e.target.files[0];
+  importProjects(f);
+  projektImportFile.value = "";  // erlaubt erneutes Auswählen derselben Datei
+});
+projektWipeBtn.addEventListener("click", wipeProjects);
+projektBackupModal.querySelectorAll("[data-close]").forEach(el => {
+  el.addEventListener("click", closeProjektBackupModal);
+});
+
+// ESC schließt offene Projekt-Modals
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (projektNewModal.classList.contains("show")) closeNewProjectModal();
+  if (projektBackupModal.classList.contains("show")) closeProjektBackupModal();
+});
