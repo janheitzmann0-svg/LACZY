@@ -2912,6 +2912,8 @@ function sectionHasData(p, sectionKey){
       if (p.geschosse && p.geschosse.some(g => g.value && g.value.trim())) return true;
       if (p.daecher && p.daecher.some(d => d.kniestock || d.neigung || d.ueberstand)) return true;
       return false;
+    case "bauteile":
+      return sectionHasDataBauteile(p);
     default:
       return false;  // Sektionen 3-8 noch nicht implementiert
   }
@@ -3219,6 +3221,7 @@ function renderSection(n){
   switch(n){
     case 1: renderSection1(p); break;
     case 2: renderSection2(p); break;
+    case 3: renderSection3(p); break;
     default: renderSectionPlaceholder(n); break;
   }
 }
@@ -3770,3 +3773,839 @@ document.addEventListener("keydown", (e) => {
   if (projektNewModal.classList.contains("open")) closeNewProjectModal();
   if (projektBackupModal.classList.contains("open")) closeProjektBackupModal();
 });
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SEKTION 3 — BAUTEILE (Neubau)
+// ════════════════════════════════════════════════════════════════════════════
+// Datenmodell:
+//   p.bauteile = {
+//     "3.1":  { variant: "perimeter"|"misapor"|null, schichten: {key: thk_mm}, notiz: "" }
+//     "3.2":  { perGeschoss: { "<geschossKey>": {variant, schichten, notiz} } }
+//     "3.3":  { aktiv: bool, daemmung_mm: "", notiz: "" }
+//     "3.4":  { perGeschoss: { "<geschossKey>": {variant, schichten, notiz} } }
+//   }
+// Standards sind nur Default-Werte — der Nutzer überschreibt die Schichtdicken.
+
+const BAUTEIL_CATALOG = {
+  "3.1": {
+    title: "Bodenplatte",
+    type: "single",  // ein Aufbau global
+    variants: [
+      {
+        key: "perimeter",
+        tag: "Standard",
+        title: "Perimeterdämmung",
+        schichten: [
+          { key: "beton",     name: "Stahlbeton",       def: 220, editable: true },
+          { key: "perimeter", name: "Perimeterdämmung", def: 180, editable: true }
+        ]
+      },
+      {
+        key: "misapor",
+        tag: "Alternative",
+        title: "Misapor 10/75",
+        schichten: [
+          { key: "beton",   name: "Stahlbeton", def: 220, editable: true },
+          { key: "misapor", name: "Misapor 10/75", def: 300, editable: true }
+        ]
+      }
+    ]
+  },
+
+  "3.2": {
+    title: "Geschossdecken",
+    type: "perGeschoss",  // eine Auswahl pro Geschosswechsel
+    variants: [
+      {
+        key: "stahlbeton",
+        tag: "Standard",
+        title: "Stahlbetondecke",
+        schichten: [{ key: "beton", name: "Stahlbeton", def: 200, editable: true }]
+      },
+      {
+        key: "brettsperrholz",
+        tag: "Holzmassiv",
+        title: "Brettsperrholzdecke",
+        schichten: [{ key: "bsp", name: "Brettsperrholz", def: 160, editable: true }]
+      },
+      {
+        key: "holzbalken",
+        tag: "Holzbau",
+        title: "Holzbalkendecke",
+        schichten: [
+          { key: "balken", name: "Holzbalken", def: 240, editable: true }
+        ]
+      },
+      {
+        key: "lignotrend",
+        tag: "Holzmassiv",
+        title: "Lignotrenddecke",
+        schichten: [
+          { key: "lignotrend", name: "Lignotrend", def: 200, editable: true }
+        ]
+      }
+    ]
+  },
+
+  "3.3": {
+    title: "Boden gegen unbeheizt / Außenluft",
+    type: "simple",  // Häkchen + ein Stärke-Feld + Notiz
+    standardLabel: "TG-Decke: Isover topdec dp3 · WLG 035",
+    schichtName: "Dämmung Kaltseite"
+  },
+
+  "3.4": {
+    title: "Fußbodenaufbau",
+    type: "perGeschoss",
+    variants: [
+      {
+        key: "efh",
+        tag: "EFH-Standard",
+        title: "Standard 150 mm",
+        schichten: [
+          { key: "belag",      name: "Bodenbelag",       def: 15, editable: true },
+          { key: "estrich",    name: "Estrich",           def: 65, editable: true },
+          { key: "trittschall",name: "Trittschall / FBH", def: 30, editable: true },
+          { key: "daemmung",   name: "Dämmung EPS",       def: 40, editable: true }
+        ]
+      },
+      {
+        key: "mfh",
+        tag: "MFH-Standard",
+        title: "Standard 190 mm",
+        schichten: [
+          { key: "belag",      name: "Bodenbelag",       def: 15, editable: true },
+          { key: "estrich",    name: "Estrich",           def: 65, editable: true },
+          { key: "trittschall",name: "Trittschall / FBH", def: 30, editable: true },
+          { key: "schuettung", name: "gebundene Schüttung", def: 80, editable: true }
+        ]
+      }
+    ]
+  }
+};
+
+const BAUTEIL_ORDER_3A = ["3.1", "3.2", "3.3", "3.4"];
+
+// Welche Bauteile sind in der aktuellen UI aufgeklappt (UI-State, nicht persistiert)
+const bauteilOpen = new Set();
+
+// ─── Helpers ────────────────────────────────────────────────────────
+function defaultVariantKey(bauteilId, p){
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  if (!cat || !cat.variants) return null;
+  // Fußbodenaufbau: Default je EFH/MFH
+  if (bauteilId === "3.4"){
+    return p.gebTyp === "mfh" ? "mfh" : "efh";
+  }
+  return cat.variants[0].key;
+}
+
+function findVariant(bauteilId, variantKey){
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  if (!cat || !cat.variants) return null;
+  return cat.variants.find(v => v.key === variantKey) || null;
+}
+
+// Geschoss-Liste aus Sektion 2 — für 3.2 Geschosswechsel-Decken,
+// für 3.4 alle bewohnten Geschosse
+function getGeschosseFor(bauteilId, p){
+  // Nur Geschosse mit ausgefüllter lichter Höhe gelten als "verwendet".
+  // Geschosse mit Label aber ohne Höhe sind ungenutzte Default-Slots.
+  const list = (p.geschosse || []).filter(g =>
+    g.key && g.key.trim() && g.value && g.value.trim());
+  if (!list.length) return [];
+  if (bauteilId === "3.2"){
+    // Geschosswechsel: aufeinander folgende Paare + "letztes → Dach" wenn Dach existiert
+    const pairs = [];
+    for (let i = 0; i < list.length - 1; i++){
+      pairs.push({ id: list[i].key + "→" + list[i+1].key, label: list[i].key + " → " + list[i+1].key });
+    }
+    // letzter Übergang Dach nur wenn ein Dach existiert UND es mind. ein Geschoss gibt
+    if (p.daecher && p.daecher.length){
+      pairs.push({ id: list[list.length-1].key + "→Dach", label: list[list.length-1].key + " → Dach" });
+    }
+    return pairs;
+  }
+  // 3.4: jedes ausgefüllte Geschoss bekommt einen Bodenaufbau
+  return list.map(g => ({ id: g.key, label: g.key }));
+}
+
+// State-Initialisierung für ein Bauteil-Set
+function ensureBauteilState(p, bauteilId){
+  if (!p.bauteile) p.bauteile = {};
+  if (p.bauteile[bauteilId]) return p.bauteile[bauteilId];
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  if (cat.type === "simple"){
+    p.bauteile[bauteilId] = { aktiv: false, daemmung_mm: "", notiz: "" };
+  } else if (cat.type === "perGeschoss"){
+    p.bauteile[bauteilId] = { perGeschoss: {} };
+  } else {
+    p.bauteile[bauteilId] = { variant: null, schichten: {}, notiz: "" };
+  }
+  return p.bauteile[bauteilId];
+}
+
+function getGeschossEntry(p, bauteilId, geschossId){
+  const state = ensureBauteilState(p, bauteilId);
+  return state.perGeschoss[geschossId] || null;
+}
+
+function ensureGeschossEntry(p, bauteilId, geschossId){
+  const state = ensureBauteilState(p, bauteilId);
+  if (!state.perGeschoss[geschossId]){
+    state.perGeschoss[geschossId] = { variant: null, schichten: {}, notiz: "" };
+  }
+  return state.perGeschoss[geschossId];
+}
+
+// Live-Stärke einer Aufbau-Instanz berechnen
+function sumSchichten(entry, variant){
+  if (!variant) return null;
+  let total = 0;
+  let hasValues = false;
+  for (const s of variant.schichten){
+    const v = entry.schichten[s.key];
+    if (v !== undefined && v !== "" && !isNaN(parseFloat(v))){
+      total += parseFloat(v);
+      hasValues = true;
+    } else {
+      total += s.def;
+      hasValues = true;
+    }
+  }
+  return hasValues ? Math.round(total) : null;
+}
+
+// Wurde eine Schicht vom Default abgeweicht?
+function isSchichtModified(entry, schicht){
+  const v = entry.schichten[schicht.key];
+  if (v === undefined || v === "") return false;
+  return parseFloat(v) !== schicht.def;
+}
+
+// Sind in einem Bauteil-Aufbau überhaupt Modifikationen?
+function hasAnyModification(entry, variant){
+  if (!variant) return false;
+  return variant.schichten.some(s => isSchichtModified(entry, s));
+}
+
+// Status-Pill für die zugeklappte Kopfzeile
+function bauteilStatus(p, bauteilId){
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  const state = p.bauteile && p.bauteile[bauteilId];
+  if (!state) return { cls: "empty", text: "—" };
+
+  if (cat.type === "simple"){
+    if (!state.aktiv && !state.notiz) return { cls: "empty", text: "—" };
+    if (state.aktiv) return { cls: "set", text: cat.standardLabel.split(":")[0] || "gewählt" };
+    return { cls: "set", text: "individuell" };
+  }
+
+  if (cat.type === "perGeschoss"){
+    const ges = getGeschosseFor(bauteilId, p);
+    if (!ges.length) return { cls: "empty", text: "—" };
+    let filled = 0, mods = 0;
+    for (const g of ges){
+      const entry = state.perGeschoss[g.id];
+      if (entry && entry.variant){
+        filled++;
+        const v = findVariant(bauteilId, entry.variant);
+        if (hasAnyModification(entry, v)) mods++;
+      }
+    }
+    if (filled === 0) return { cls: "empty", text: "—" };
+    if (mods > 0) return { cls: "mod", text: filled + "/" + ges.length + " · angepasst" };
+    return { cls: "set", text: filled + "/" + ges.length };
+  }
+
+  // single
+  if (!state.variant) return { cls: "empty", text: "—" };
+  const v = findVariant(bauteilId, state.variant);
+  if (!v) return { cls: "empty", text: "—" };
+  if (hasAnyModification(state, v)) return { cls: "mod", text: v.title + " · angepasst" };
+  return { cls: "set", text: v.title };
+}
+
+// ─── Renderer ───────────────────────────────────────────────────────
+function renderSection3(p){
+  clearChildren(wizardContainer);
+  const wrap = document.createElement("div");
+  wrap.className = "bauteil-list";
+
+  for (const id of BAUTEIL_ORDER_3A){
+    const item = renderBauteilItem(p, id);
+    wrap.append(item);
+  }
+  wizardContainer.append(wrap);
+
+  // Platzhalter für 3.5-3.12
+  const ph = document.createElement("div");
+  ph.className = "info-hint";
+  ph.style.marginTop = "12px";
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const c = document.createElementNS(svgNS, "circle");
+  c.setAttribute("cx", "12"); c.setAttribute("cy", "12"); c.setAttribute("r", "9");
+  const l1 = document.createElementNS(svgNS, "line");
+  l1.setAttribute("x1","12"); l1.setAttribute("y1","8");
+  l1.setAttribute("x2","12"); l1.setAttribute("y2","12");
+  const l2 = document.createElementNS(svgNS, "line");
+  l2.setAttribute("x1","12"); l2.setAttribute("y1","16");
+  l2.setAttribute("x2","12.01"); l2.setAttribute("y2","16");
+  svg.append(c, l1, l2);
+  const txt = document.createElement("span");
+  txt.textContent = "Bauteile 3.5 – 3.12 (Wände, Fenster, Haustür, Steildach, Flachdach, Gaube, Treppe) kommen in der nächsten Etappe.";
+  ph.append(svg, txt);
+  wizardContainer.append(ph);
+}
+
+function renderBauteilItem(p, bauteilId){
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  const item = document.createElement("div");
+  item.className = "bauteil-item";
+  if (bauteilOpen.has(bauteilId)) item.classList.add("open");
+
+  // Head
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "bauteil-head";
+  head.setAttribute("aria-expanded", bauteilOpen.has(bauteilId) ? "true" : "false");
+
+  const noEl = document.createElement("span");
+  noEl.className = "bh-no";
+  noEl.textContent = bauteilId;
+
+  const titleEl = document.createElement("span");
+  titleEl.className = "bh-title";
+  titleEl.textContent = cat.title;
+
+  const status = bauteilStatus(p, bauteilId);
+  const statusEl = document.createElement("span");
+  statusEl.className = "bh-status " + status.cls;
+  statusEl.textContent = status.text;
+
+  const chevron = document.createElement("span");
+  chevron.className = "bh-chevron";
+  const svgNS = "http://www.w3.org/2000/svg";
+  const csvg = document.createElementNS(svgNS, "svg");
+  csvg.setAttribute("viewBox", "0 0 24 24");
+  csvg.setAttribute("fill", "none");
+  csvg.setAttribute("stroke", "currentColor");
+  csvg.setAttribute("stroke-width", "2");
+  csvg.setAttribute("stroke-linecap", "round");
+  csvg.setAttribute("stroke-linejoin", "round");
+  const cp = document.createElementNS(svgNS, "polyline");
+  cp.setAttribute("points", "6 9 12 15 18 9");
+  csvg.append(cp);
+  chevron.append(csvg);
+
+  head.append(noEl, titleEl, statusEl, chevron);
+  head.addEventListener("click", () => {
+    if (bauteilOpen.has(bauteilId)) bauteilOpen.delete(bauteilId);
+    else bauteilOpen.add(bauteilId);
+    renderSection3(p);
+    renderWizardChrome();
+  });
+  item.append(head);
+
+  // Body — nur wenn aufgeklappt
+  if (bauteilOpen.has(bauteilId)){
+    const body = document.createElement("div");
+    body.className = "bauteil-body";
+
+    if (cat.type === "simple"){
+      renderBauteilSimple(body, p, bauteilId);
+    } else if (cat.type === "perGeschoss"){
+      renderBauteilPerGeschoss(body, p, bauteilId);
+    } else {
+      renderBauteilSingle(body, p, bauteilId);
+    }
+
+    item.append(body);
+  }
+
+  return item;
+}
+
+// Variante: ein Aufbau global (3.1)
+function renderBauteilSingle(body, p, bauteilId){
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  const state = ensureBauteilState(p, bauteilId);
+  if (!state.variant) state.variant = defaultVariantKey(bauteilId, p);
+
+  // Variant-Auswahl
+  const grid = document.createElement("div");
+  grid.className = "variant-grid " + (cat.variants.length === 2 ? "cols-2" : "cols-1");
+  for (const v of cat.variants){
+    grid.append(makeVariantCard(v, state.variant === v.key, () => {
+      // Variant wechseln — Schichten resetten, damit Defaults der neuen Variante greifen
+      state.variant = v.key;
+      state.schichten = {};
+      touchActive();
+      renderSection3(p);
+      renderWizardChrome();
+    }));
+  }
+  body.append(grid);
+
+  // Aktiver Aufbau-Block mit editierbaren Schichten
+  const activeVariant = findVariant(bauteilId, state.variant);
+  if (activeVariant){
+    body.append(makeAufbauBlock(activeVariant, state, p, bauteilId, null));
+  }
+
+  // Freifeld
+  body.append(makeNotizFeld(state.notiz || "", (val) => {
+    state.notiz = sanitizeStr(val, MAX_PROJECT_TEXT_LEN);
+    touchActive();
+  }));
+}
+
+// Variante: pro Geschoss (3.2 + 3.4)
+function renderBauteilPerGeschoss(body, p, bauteilId){
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  const state = ensureBauteilState(p, bauteilId);
+  const geschosse = getGeschosseFor(bauteilId, p);
+
+  if (!geschosse.length){
+    body.append(makeHinweis(
+      bauteilId === "3.2"
+        ? "Bitte erst in Sektion 2 Geschosse anlegen — die Geschosswechsel-Decken werden daraus abgeleitet."
+        : "Bitte erst in Sektion 2 Geschosse anlegen."
+    ));
+    return;
+  }
+
+  // Geschoss-Auswahl-Zeilen
+  const listWrap = document.createElement("div");
+  listWrap.style.marginBottom = "10px";
+  for (const ges of geschosse){
+    // 3.4 (Fußboden): Default-Eintrag mit EFH/MFH-Variante anlegen, damit der User
+    //                  schon eine sinnvolle Vor-Auswahl sieht.
+    // 3.2 (Decken):   nur dann materialisieren wenn der Nutzer aktiv wählt.
+    let entry;
+    if (bauteilId === "3.4"){
+      entry = ensureGeschossEntry(p, bauteilId, ges.id);
+      if (!entry.variant) entry.variant = defaultVariantKey(bauteilId, p);
+    } else {
+      entry = getGeschossEntry(p, bauteilId, ges.id);
+    }
+    // Für den Render einen sicheren Fallback nutzen
+    const displayEntry = entry || { variant: null, schichten: {}, notiz: "" };
+    const geschossIdLocal = ges.id;  // closure-stabil
+
+    const row = document.createElement("div");
+    row.className = "geschoss-select-row";
+
+    const lab = document.createElement("span");
+    lab.className = "gs-label";
+    lab.textContent = ges.label;
+
+    const sel = document.createElement("select");
+    sel.className = "wiz-input";
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = "— wählen —";
+    sel.append(noneOpt);
+    for (const v of cat.variants){
+      const opt = document.createElement("option");
+      opt.value = v.key;
+      opt.textContent = v.title;
+      if (displayEntry.variant === v.key) opt.selected = true;
+      sel.append(opt);
+    }
+    sel.addEventListener("change", () => {
+      if (!sel.value){
+        // Kein "wählen" — Eintrag entfernen falls vorhanden
+        const st = ensureBauteilState(p, bauteilId);
+        delete st.perGeschoss[geschossIdLocal];
+      } else {
+        const e2 = ensureGeschossEntry(p, bauteilId, geschossIdLocal);
+        e2.variant = sel.value;
+        e2.schichten = {};
+      }
+      touchActive();
+      renderSection3(p);
+      renderWizardChrome();
+    });
+
+    const sumEl = document.createElement("span");
+    sumEl.className = "gs-sum";
+    if (displayEntry.variant){
+      const v = findVariant(bauteilId, displayEntry.variant);
+      const total = sumSchichten(displayEntry, v);
+      if (total !== null){
+        sumEl.textContent = total + " mm";
+        sumEl.classList.add("set");
+      } else {
+        sumEl.textContent = "—";
+      }
+    } else {
+      sumEl.textContent = "—";
+    }
+
+    row.append(lab, sel, sumEl);
+    listWrap.append(row);
+
+    // Aufbau-Block direkt darunter, wenn Variante gewählt
+    if (displayEntry.variant && entry){
+      const v = findVariant(bauteilId, displayEntry.variant);
+      const block = makeAufbauBlock(v, entry, p, bauteilId, ges.id);
+      block.style.marginLeft = "12px";
+      block.style.marginBottom = "10px";
+      listWrap.append(block);
+    }
+  }
+  body.append(listWrap);
+
+  // Hinweis: was sind die Auswahlmöglichkeiten
+  const opts = cat.variants.map(v => v.title).join(" · ");
+  body.append(makeHinweis("Auswahlmöglichkeiten je Geschoss: " + opts + " · oder Stärken anpassen"));
+}
+
+// Variante: 3.3 — einfaches Häkchen + ein Stärke-Feld + Notiz
+function renderBauteilSimple(body, p, bauteilId){
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  const state = ensureBauteilState(p, bauteilId);
+
+  // Auswahl: aktiv / nicht aktiv
+  const chk = document.createElement("button");
+  chk.type = "button";
+  chk.className = "checkbox-row";
+  chk.style.marginBottom = "10px";
+  chk.style.background = "var(--surface)";
+  chk.style.border = "1px solid var(--border)";
+  chk.style.borderRadius = "8px";
+  chk.style.padding = "10px 12px";
+  chk.style.width = "100%";
+  chk.style.display = "flex";
+  if (state.aktiv) chk.classList.add("checked");
+  const box = document.createElement("span");
+  box.className = "box";
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svgC = document.createElementNS(svgNS, "svg");
+  svgC.setAttribute("viewBox", "0 0 24 24");
+  svgC.setAttribute("fill", "none");
+  svgC.setAttribute("stroke", "currentColor");
+  svgC.setAttribute("stroke-linecap", "round");
+  svgC.setAttribute("stroke-linejoin", "round");
+  const polyC = document.createElementNS(svgNS, "polyline");
+  polyC.setAttribute("points", "5 12 10 17 19 7");
+  svgC.append(polyC);
+  box.append(svgC);
+  const lab = document.createElement("span");
+  lab.className = "label";
+  lab.textContent = cat.standardLabel;
+  chk.append(box, lab);
+  chk.addEventListener("click", () => {
+    state.aktiv = !state.aktiv;
+    touchActive();
+    renderSection3(p);
+    renderWizardChrome();
+  });
+  body.append(chk);
+
+  if (state.aktiv){
+    // Stärke-Eingabe
+    const block = document.createElement("div");
+    block.className = "aufbau-block";
+    const labEl = document.createElement("div");
+    labEl.className = "ab-label";
+    labEl.append(document.createTextNode(cat.schichtName + " · Stärke"));
+    block.append(labEl);
+    const row = document.createElement("div");
+    row.className = "schicht-row";
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.className = "schicht-thk";
+    inp.maxLength = 6;
+    inp.placeholder = "—";
+    inp.value = state.daemmung_mm || "";
+    inp.addEventListener("input", () => {
+      state.daemmung_mm = sanitizeStr(inp.value, 6);
+      touchActive();
+    });
+    const n = document.createElement("span");
+    n.className = "schicht-name";
+    n.textContent = cat.schichtName;
+    const u = document.createElement("span");
+    u.className = "schicht-unit";
+    u.textContent = "mm";
+    row.append(inp, n, u);
+    block.append(row);
+    body.append(block);
+  }
+
+  // Notiz / Infos / Besonderheiten
+  body.append(makeNotizFeld(state.notiz || "", (val) => {
+    state.notiz = sanitizeStr(val, MAX_PROJECT_TEXT_LEN);
+    touchActive();
+  }, "Infos · Besonderheiten"));
+}
+
+// ─── Sub-Komponenten ────────────────────────────────────────────────
+function makeVariantCard(variant, active, onClick){
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = "variant-card" + (active ? " active" : "");
+  const mark = document.createElement("div");
+  mark.className = "vc-mark";
+  const radio = document.createElement("span");
+  radio.className = "vc-radio";
+  const tag = document.createElement("span");
+  tag.className = "vc-tag";
+  tag.textContent = variant.tag || "";
+  mark.append(radio, tag);
+  const t = document.createElement("div");
+  t.className = "vc-title";
+  t.textContent = variant.title;
+  const d = document.createElement("div");
+  d.className = "vc-detail";
+  const sumDef = variant.schichten.reduce((acc, s) => acc + s.def, 0);
+  d.textContent = sumDef + " mm Standard";
+  card.append(mark, t, d);
+  card.addEventListener("click", onClick);
+  return card;
+}
+
+function makeAufbauBlock(variant, entry, p, bauteilId, geschossId){
+  const block = document.createElement("div");
+  block.className = "aufbau-block";
+
+  const labEl = document.createElement("div");
+  labEl.className = "ab-label";
+  const labText = document.createElement("span");
+  labText.textContent = "Aufbau · Stärken anpassbar";
+  labEl.append(labText);
+
+  // Reset-Button nur wenn was modifiziert ist
+  if (hasAnyModification(entry, variant)){
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "ab-reset";
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute("d", "M3 12a9 9 0 1 0 3-6.7");
+    const poly = document.createElementNS(svgNS, "polyline");
+    poly.setAttribute("points", "3 3 3 9 9 9");
+    svg.append(path, poly);
+    reset.append(svg, document.createTextNode("zurücksetzen"));
+    reset.addEventListener("click", () => {
+      entry.schichten = {};
+      touchActive();
+      renderSection3(p);
+      renderWizardChrome();
+    });
+    labEl.append(reset);
+  }
+  block.append(labEl);
+
+  // Schicht-Zeilen
+  for (const s of variant.schichten){
+    const row = document.createElement("div");
+    row.className = "schicht-row";
+
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.className = "schicht-thk";
+    inp.maxLength = 6;
+    inp.value = (entry.schichten[s.key] !== undefined && entry.schichten[s.key] !== "")
+      ? entry.schichten[s.key]
+      : String(s.def);
+    if (isSchichtModified(entry, s)) inp.classList.add("modified");
+    if (!s.editable) inp.readOnly = true;
+    inp.addEventListener("input", () => {
+      const v = inp.value.replace(",", ".").trim();
+      if (v === "" || v === String(s.def)){
+        delete entry.schichten[s.key];
+      } else {
+        entry.schichten[s.key] = sanitizeStr(v, 6);
+      }
+      touchActive();
+      // Lokal nur die Summe, Modified-Marker und Status-Pill updaten
+      // (sonst verliert das Input den Focus)
+      updateAufbauSum(block, variant, entry);
+      inp.classList.toggle("modified", isSchichtModified(entry, s));
+      // Status-Pill in der zugehörigen Kopfzeile aktualisieren
+      const itemEl = block.closest(".bauteil-item");
+      if (itemEl){
+        const proj = findProject(activeProjectId);
+        const statusEl = itemEl.querySelector(".bh-status");
+        if (statusEl && proj){
+          const status = bauteilStatus(proj, bauteilId);
+          statusEl.className = "bh-status " + status.cls;
+          statusEl.textContent = status.text;
+        }
+        // Bei perGeschoss: auch die Summen in den Geschoss-Zeilen updaten
+        if (geschossId && proj){
+          const rows = itemEl.querySelectorAll(".geschoss-select-row");
+          const state = ensureBauteilState(proj, bauteilId);
+          const ges = getGeschosseFor(bauteilId, proj);
+          rows.forEach((rEl, idx) => {
+            if (idx >= ges.length) return;
+            const e = state.perGeschoss[ges[idx].id];
+            const sumSpan = rEl.querySelector(".gs-sum");
+            if (!sumSpan) return;
+            if (e && e.variant){
+              const vv = findVariant(bauteilId, e.variant);
+              const t = sumSchichten(e, vv);
+              if (t !== null){ sumSpan.textContent = t + " mm"; sumSpan.classList.add("set"); }
+              else { sumSpan.textContent = "—"; sumSpan.classList.remove("set"); }
+            } else {
+              sumSpan.textContent = "—"; sumSpan.classList.remove("set");
+            }
+          });
+        }
+      }
+    });
+
+    const name = document.createElement("span");
+    name.className = "schicht-name";
+    name.textContent = s.name;
+
+    const unit = document.createElement("span");
+    unit.className = "schicht-unit";
+    unit.textContent = "mm";
+
+    row.append(inp, name, unit);
+    block.append(row);
+  }
+
+  // Summe
+  const sum = document.createElement("div");
+  sum.className = "ab-sum";
+  const sv = document.createElement("span");
+  sv.className = "v";
+  sv.textContent = sumSchichten(entry, variant) + "";
+  const sl = document.createElement("span");
+  sl.className = "l";
+  sl.textContent = "Gesamtstärke";
+  const su = document.createElement("span");
+  su.className = "u";
+  su.textContent = "mm";
+  sum.append(sv, sl, su);
+  block.append(sum);
+
+  return block;
+}
+
+function updateAufbauSum(blockEl, variant, entry){
+  const sv = blockEl.querySelector(".ab-sum .v");
+  if (sv) sv.textContent = sumSchichten(entry, variant) + "";
+  // Reset-Button erscheinen/verschwinden lassen — minimaler Eingriff:
+  // wenn aktuell keiner da ist und nun nötig, oder umgekehrt, einmal neu rendern den labEl
+  const labEl = blockEl.querySelector(".ab-label");
+  if (!labEl) return;
+  const hasReset = !!labEl.querySelector(".ab-reset");
+  const needReset = hasAnyModification(entry, variant);
+  if (hasReset && !needReset){
+    labEl.querySelector(".ab-reset").remove();
+  } else if (!hasReset && needReset){
+    // Reset-Button hinzubauen (gleiche Logik wie oben, ohne Full-Render)
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "ab-reset";
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute("d", "M3 12a9 9 0 1 0 3-6.7");
+    const poly = document.createElementNS(svgNS, "polyline");
+    poly.setAttribute("points", "3 3 3 9 9 9");
+    svg.append(path, poly);
+    reset.append(svg, document.createTextNode("zurücksetzen"));
+    reset.addEventListener("click", () => {
+      entry.schichten = {};
+      touchActive();
+      const p = findProject(activeProjectId);
+      renderSection3(p);
+      renderWizardChrome();
+    });
+    labEl.append(reset);
+  }
+}
+
+function makeNotizFeld(value, onInput, labelText){
+  const wrap = document.createElement("div");
+  wrap.className = "bauteil-notiz";
+  const lab = document.createElement("div");
+  lab.className = "bauteil-notiz-label";
+  lab.textContent = labelText || "Notiz · individueller Aufbau";
+  const ta = document.createElement("textarea");
+  ta.className = "wiz-input";
+  ta.rows = 2;
+  ta.maxLength = MAX_PROJECT_TEXT_LEN;
+  ta.placeholder = "Customized Aufbauten, Besonderheiten — hier eintragen";
+  ta.value = value;
+  ta.addEventListener("input", () => onInput(ta.value));
+  wrap.append(lab, ta);
+  return wrap;
+}
+
+function makeHinweis(text){
+  const h = document.createElement("div");
+  h.className = "info-hint";
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const c = document.createElementNS(svgNS, "circle");
+  c.setAttribute("cx","12"); c.setAttribute("cy","12"); c.setAttribute("r","9");
+  const l1 = document.createElementNS(svgNS, "line");
+  l1.setAttribute("x1","12"); l1.setAttribute("y1","8");
+  l1.setAttribute("x2","12"); l1.setAttribute("y2","12");
+  const l2 = document.createElementNS(svgNS, "line");
+  l2.setAttribute("x1","12"); l2.setAttribute("y1","16");
+  l2.setAttribute("x2","12.01"); l2.setAttribute("y2","16");
+  svg.append(c, l1, l2);
+  const t = document.createElement("span");
+  t.textContent = text;
+  h.append(svg, t);
+  return h;
+}
+
+// ─── sectionHasData für Sektion 3 erweitern ─────────────────────────
+// Eigene Funktion, die von sectionHasData() aufgerufen wird (siehe Patch unten)
+function sectionHasDataBauteile(p){
+  if (!p || !p.bauteile) return false;
+  for (const id of BAUTEIL_ORDER_3A){
+    const state = p.bauteile[id];
+    if (!state) continue;
+    const cat = BAUTEIL_CATALOG[id];
+    if (cat.type === "simple"){
+      if (state.aktiv || state.notiz || state.daemmung_mm) return true;
+    } else if (cat.type === "perGeschoss"){
+      const pg = state.perGeschoss || {};
+      for (const k in pg){
+        const e = pg[k];
+        if (e.variant || e.notiz) return true;
+      }
+    } else {
+      if (state.variant || state.notiz) return true;
+    }
+  }
+  return false;
+}

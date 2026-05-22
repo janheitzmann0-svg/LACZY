@@ -648,6 +648,254 @@ select.wiz-input{
   margin-top: 10px;
 }
 
+/* ═════ Sektion 3 Bauteile · Akkordeon ════════════════════════════ */
+
+.bauteil-list{ display: flex; flex-direction: column; gap: 6px }
+
+.bauteil-item{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color .15s;
+}
+.bauteil-item.open{ border-color: var(--border-2) }
+
+.bauteil-head{
+  display: grid;
+  grid-template-columns: 32px 1fr auto 20px;
+  gap: 10px; align-items: center;
+  padding: 12px 14px;
+  cursor: pointer;
+  background: var(--surface);
+  border: none;
+  text-align: left;
+  width: 100%;
+  font-family: var(--font-body);
+  color: var(--text);
+}
+.bauteil-head:hover{ background: var(--bg) }
+.bauteil-head .bh-no{
+  font-family: var(--font-mono);
+  font-size: 11px; color: var(--text-3);
+}
+.bauteil-head .bh-title{
+  font-family: var(--font-display);
+  font-size: 15px; font-weight: 500;
+  line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bauteil-head .bh-status{
+  font-size: 10px; letter-spacing: 0.04em;
+  padding: 2px 8px; border-radius: 4px;
+  font-weight: 500;
+  font-family: var(--font-body);
+  max-width: 220px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bauteil-head .bh-status.empty{ background: var(--surface-2); color: var(--text-3) }
+.bauteil-head .bh-status.set{   background: var(--sage-glow); color: var(--sage-deep) }
+.bauteil-head .bh-status.mod{   background: var(--terra-tint); color: var(--terra-deep) }
+.bauteil-head .bh-chevron{
+  color: var(--text-3);
+  transition: transform .2s, color .15s;
+  display: inline-flex; justify-content: center;
+}
+.bauteil-head .bh-chevron svg{ width: 16px; height: 16px }
+.bauteil-item.open .bh-chevron{ transform: rotate(180deg); color: var(--terra-deep) }
+
+.bauteil-body{
+  padding: 4px 14px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+/* Standard-Aufbau-Block (Schicht-Stack) */
+.aufbau-block{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.aufbau-block .ab-label{
+  font-size: 10px; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  margin-bottom: 6px; font-weight: 500;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 6px;
+}
+.aufbau-block .ab-reset{
+  background: none; border: none; color: var(--text-3);
+  cursor: pointer; padding: 2px 6px;
+  font-size: 10px; text-transform: none; letter-spacing: 0;
+  font-family: var(--font-body); font-weight: 400;
+  border-radius: 4px;
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.aufbau-block .ab-reset:hover{ background: var(--surface-2); color: var(--text-2) }
+.aufbau-block .ab-reset svg{ width: 11px; height: 11px }
+
+.schicht-row{
+  display: grid;
+  grid-template-columns: 64px 1fr 30px;
+  gap: 8px; align-items: center;
+  padding: 3px 0;
+}
+.schicht-row .schicht-thk{
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  width: 100%;
+  text-align: right;
+  box-sizing: border-box;
+  transition: border-color .15s;
+}
+.schicht-row .schicht-thk:focus{ outline: none; border-color: var(--terra) }
+.schicht-row .schicht-thk[readonly]{
+  background: var(--surface-2); color: var(--text-3);
+  border-color: var(--border); cursor: not-allowed;
+}
+.schicht-row .schicht-thk.modified{
+  border-color: var(--terra-deep);
+  background: var(--terra-tint);
+  color: var(--terra-deep);
+}
+.schicht-row .schicht-name{
+  font-family: var(--font-body); font-size: 12px;
+  color: var(--text-2); line-height: 1.3;
+}
+.schicht-row .schicht-unit{
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--text-3); text-align: left;
+}
+
+.aufbau-block .ab-sum{
+  border-top: 1px dashed var(--border-2);
+  margin-top: 6px; padding-top: 6px;
+  display: grid;
+  grid-template-columns: 64px 1fr 30px;
+  gap: 8px; align-items: center;
+  font-family: var(--font-mono); font-size: 12px;
+}
+.aufbau-block .ab-sum .v{
+  text-align: right; color: var(--sage-deep); font-weight: 500;
+}
+.aufbau-block .ab-sum .u{ font-size: 10px; color: var(--text-3) }
+.aufbau-block .ab-sum .l{
+  font-family: var(--font-body); font-size: 11px;
+  color: var(--text-2);
+}
+
+/* Variant-Auswahl (z.B. Perimeter vs. Misapor, oder die 4 Decken-Varianten) */
+.variant-grid{
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.variant-grid.cols-2{ grid-template-columns: repeat(2, 1fr) }
+.variant-grid.cols-1{ grid-template-columns: 1fr }
+
+.variant-card{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: all .15s;
+  font-family: var(--font-body);
+}
+.variant-card:hover{ border-color: var(--text-3) }
+.variant-card.active{
+  background: var(--terra-tint);
+  border-color: var(--terra-deep);
+}
+.variant-card .vc-mark{
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 4px;
+}
+.variant-card .vc-radio{
+  width: 12px; height: 12px;
+  border: 1.5px solid var(--text-3);
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--surface);
+  flex-shrink: 0;
+  transition: all .15s;
+}
+.variant-card.active .vc-radio{
+  border-color: var(--terra-deep);
+  box-shadow: inset 0 0 0 2.5px var(--terra-deep);
+  background: var(--surface);
+}
+.variant-card .vc-tag{
+  font-size: 10px; letter-spacing: 0.04em;
+  color: var(--text-3);
+  text-transform: uppercase; font-weight: 500;
+}
+.variant-card.active .vc-tag{ color: var(--terra-deep) }
+.variant-card .vc-title{
+  font-family: var(--font-display);
+  font-size: 13px; font-weight: 500;
+  color: var(--text); line-height: 1.2;
+}
+.variant-card .vc-detail{
+  font-size: 11px; color: var(--text-2);
+  margin-top: 3px; font-family: var(--font-mono);
+}
+
+/* Geschoss-Selector (3.2 + 3.4) */
+.geschoss-select-row{
+  display: grid;
+  grid-template-columns: 100px 1fr 86px;
+  gap: 10px; align-items: center;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+.geschoss-select-row .gs-label{
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--text-2);
+}
+.geschoss-select-row .gs-sum{
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3); text-align: right;
+}
+.geschoss-select-row .gs-sum.set{ color: var(--sage-deep); font-weight: 500 }
+
+/* Hinweis-Boxen (z.B. "bitte erst Sektion 2 ausfüllen") */
+.info-hint{
+  display: flex; align-items: flex-start; gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px; color: var(--text-2);
+  line-height: 1.45;
+}
+.info-hint svg{
+  width: 16px; height: 16px;
+  color: var(--text-3); flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* Freifeld-Notiz pro Bauteil */
+.bauteil-notiz{
+  margin-top: 12px;
+}
+.bauteil-notiz-label{
+  font-size: 10px; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  margin-bottom: 4px; font-weight: 500;
+}
+
 /* App-bar 'home' brand — small inline LACZY title on tool screens */
 .appbar-brand{
   display: none; align-items: center; gap: 8px;
@@ -1804,6 +2052,13 @@ select.wiz-input{
   .dach-fields .f-label{ font-size: 9px }
   .project-item .pi-title{ font-size: 15px }
   .section-jump .sj{ font-size: 9px; padding: 2px 6px }
+  /* Sektion 3 mobile */
+  .bauteil-head{ grid-template-columns: 28px 1fr auto 18px; gap: 8px; padding: 10px 12px }
+  .bauteil-head .bh-title{ font-size: 14px }
+  .bauteil-head .bh-status{ font-size: 9px; max-width: 110px }
+  .schicht-row{ grid-template-columns: 56px 1fr 26px; gap: 6px }
+  .geschoss-select-row{ grid-template-columns: 80px 1fr 70px; gap: 6px }
+  .variant-grid.cols-2{ grid-template-columns: 1fr }
 }
 </style>
 </head>
