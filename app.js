@@ -4,7 +4,7 @@
 // Wenn der Browser eine alte index.html mit einer neuen app.js kombiniert
 // (oder umgekehrt), erkennen wir das hier und erzwingen einen Reload mit
 // Cache-Umgehung. Verhindert "geht plötzlich nichts mehr"-Symptome.
-const LACZY_JS_VERSION = "laczy-v4.7.0";
+const LACZY_JS_VERSION = "laczy-v4.7.1";
 (function versionWatchdog(){
   try {
     // Notfall-Reset via URL-Parameter: ?reset=1 leert Cache und lädt neu
@@ -3313,8 +3313,17 @@ function wizardNext(){
   const p = findProject(activeProjectId);
   if (!p) return;
   if (currentSection === PROJECT_SECTIONS.length){
-    // PDF-Export — kommt in späterer Etappe
-    showToast("PDF-Ausgabe kommt in einer der nächsten Etappen", "warn");
+    // PDF-Export
+    if (typeof exportProjectAsPdf === "function"){
+      Promise.resolve()
+        .then(() => exportProjectAsPdf(activeProjectId))
+        .catch(err => {
+          console.error("PDF-Export-Fehler:", err);
+          showToast("PDF-Fehler: " + (err && err.message ? err.message : "Unbekannt"), "warn");
+        });
+    } else {
+      showToast("PDF-Funktion nicht geladen", "warn");
+    }
     return;
   }
   currentSection++;
@@ -7139,30 +7148,5 @@ async function exportProjectAsPdf(projectId){
 }
 
 // ─── Wizard-Button verdrahten ──────────────────────────────────────
-function setupPdfExportTriggers(){
-  // Wizard "Daten ausgeben" — überschreibt den Default-Handler in wizardNext
-  const origWizardNext = wizardNext;
-  wizardNext = function(){
-    if (currentSection === PROJECT_SECTIONS.length){
-      exportProjectAsPdf(activeProjectId);
-      return;
-    }
-    origWizardNext();
-  };
-}
-
-// Da wizardNext schon registriert wurde mit dem alten Handler, müssen wir
-// die Event-Listener-Bindung neu machen. Wir hooken stattdessen direkt:
-(function patchWizardNext(){
-  // Remove old listener — wir können den nicht direkt entfernen, also stattdessen
-  // den Handler im Aufruf abfangen: an wizardNextBtn einen neuen Listener anhängen,
-  // der vor dem alten feuert.
-  if (typeof wizardNextBtn !== "undefined" && wizardNextBtn){
-    wizardNextBtn.addEventListener("click", (e) => {
-      if (currentSection === PROJECT_SECTIONS.length){
-        e.stopImmediatePropagation();
-        exportProjectAsPdf(activeProjectId);
-      }
-    }, true);  // capture phase, läuft vor dem bestehenden Bubbling-Handler
-  }
-})();
+// Die PDF-Erzeugung wird direkt in der wizardNext()-Funktion ausgelöst
+// (siehe oben), sobald currentSection die letzte Sektion ist.
