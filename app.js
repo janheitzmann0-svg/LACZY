@@ -4,7 +4,7 @@
 // Wenn der Browser eine alte index.html mit einer neuen app.js kombiniert
 // (oder umgekehrt), erkennen wir das hier und erzwingen einen Reload mit
 // Cache-Umgehung. Verhindert "geht plötzlich nichts mehr"-Symptome.
-const LACZY_JS_VERSION = "laczy-v4.4.1";
+const LACZY_JS_VERSION = "laczy-v4.5.0";
 (function versionWatchdog(){
   try {
     // Notfall-Reset via URL-Parameter: ?reset=1 leert Cache und lädt neu
@@ -2919,6 +2919,9 @@ function sanitizeProject(raw){
   if (raw.pv       && typeof raw.pv       === "object") p.pv       = raw.pv;
   if (raw.huelle   && typeof raw.huelle   === "object") p.huelle   = raw.huelle;
 
+  // Tiefe Sanitisierung der Bauteile (Sektion 3)
+  if (typeof sanitizeBauteile === "function") sanitizeBauteile(p);
+
   return p;
 }
 
@@ -3948,10 +3951,250 @@ const BAUTEIL_CATALOG = {
         ]
       }
     ]
+  },
+
+  // ─── 3.5 Wände Stahlbeton ─────────────────────────────────────────
+  "3.5": {
+    title: "Wände Stahlbeton",
+    type: "multiVariant",
+    variants: [
+      {
+        key: "awkg",
+        tag: "AW KG",
+        title: "Außenwand KG",
+        schichten: [
+          { key: "beton",     name: "Stahlbeton",       def: 240, editable: true },
+          { key: "perimeter", name: "Perimeterdämmung", def: 120, editable: true }
+        ]
+      },
+      {
+        key: "iwkg",
+        tag: "IW KG",
+        title: "Innenwand KG",
+        schichten: [
+          { key: "beton", name: "Stahlbeton", def: 200, editable: true }
+        ]
+      }
+    ]
+  },
+
+  // ─── 3.6 Wände Holz (mit Fassaden-Matrix für AW-Typen) ────────────
+  "3.6": {
+    title: "Wände Holz",
+    type: "multiVariant",
+    variants: [
+      {
+        key: "awgk13",
+        tag: "AW GK1-3",
+        title: "Außenwand GK 1-3",
+        hasFassade: true,
+        schichten: [
+          { key: "gf1",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true },
+          { key: "instEbene", name: "Inst. Ebene · ohne Dämmung",        def: 60,   editable: true },
+          { key: "osb",       name: "OSB",                               def: 15,   editable: true },
+          { key: "staender",  name: "Holzständer / Holzweichfaser",      def: 240,  editable: false },
+          { key: "hwf",       name: "Holzfaser",                         def: 60,   editable: true }
+        ]
+      },
+      {
+        key: "awgk4",
+        tag: "AW GK4",
+        title: "Außenwand GK 4",
+        hasFassade: true,
+        schichten: [
+          { key: "gf1",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true },
+          { key: "instEbene", name: "Inst. Ebene / Mineralwolle",        def: 60,   editable: true },
+          { key: "vapor",     name: "Vapor Fermacell",                   def: 15,   editable: true },
+          { key: "staender",  name: "Holzständer / Holzweichfaser",      def: 240,  editable: false },
+          { key: "gf2",       name: "Gipsfaser-Platte",                  def: 18,   editable: true },
+          { key: "hwf",       name: "Holzfaser (bei Putzfassade)",       def: 60,   editable: true }
+        ]
+      },
+      {
+        key: "gtw",
+        tag: "GTW",
+        title: "Gebäudetrennwand",
+        schichten: [
+          { key: "gf1",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true },
+          { key: "gf2",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true },
+          { key: "staender", name: "Holzständer / Holzfaser",            def: 160,  editable: false },
+          { key: "gf3",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true },
+          { key: "gf4",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true },
+          { key: "luft",     name: "Luft",                               def: 10,   editable: true },
+          { key: "vss",      name: "Vorsatzschale freistehend",          def: 50,   editable: true },
+          { key: "gf5",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true }
+        ]
+      },
+      {
+        key: "wtw",
+        tag: "WTW",
+        title: "Wohnungstrennwand (einseitige VSS)",
+        schichten: [
+          { key: "gf1",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true },
+          { key: "gf2",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true },
+          { key: "staender",  name: "Holzständer / Holzfaser",           def: 160,  editable: false },
+          { key: "gf3",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true },
+          { key: "gf4",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true },
+          { key: "vss",       name: "Vorsatzschale freistehend (Metallständer / Mineralwolle)", def: 50, editable: true },
+          { key: "gf5",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true }
+        ]
+      },
+      {
+        key: "iw",
+        tag: "IW",
+        title: "Innenwand",
+        schichten: [
+          { key: "gf1",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true },
+          { key: "staender", name: "Holzständer / Holzweichfaser",       def: 120,  editable: false },
+          { key: "gf2",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true }
+        ]
+      },
+      {
+        key: "garage",
+        tag: "Garage",
+        title: "Garagenwand AW",
+        schichten: [
+          { key: "osb",      name: "OSB",                                def: 15,   editable: true },
+          { key: "staender", name: "Holzständer / Holzweichfaser",       def: 160,  editable: false },
+          { key: "hwf",      name: "Holzfaser",                          def: 60,   editable: true }
+        ]
+      }
+    ],
+    // Fassaden-Optionen mit Excel-Kürzeln
+    fassaden: [
+      { key: "P",  label: "Putz" },
+      { key: "SV", label: "Holzschalung waagrecht" },
+      { key: "SH", label: "Holzschalung senkrecht" },
+      { key: "FP", label: "Fassadenplatten" },
+      { key: "BD", label: "Boden Deckelschalung" },
+      { key: "S",  label: "Schindeln" },
+      { key: "SB", label: "Ständer Bohlen" }
+    ]
+  },
+
+  // ─── 3.7 Fenster & Verglasung ─────────────────────────────────────
+  "3.7": {
+    title: "Fenster & Verglasung",
+    type: "fenster",  // spezial: Rahmen-Einzelwahl + Dachfenster-Toggle + Verschattungslisten
+    rahmenOptionen: [
+      { key: "kunststoff", label: "Kunststoff" },
+      { key: "holz",       label: "Holz" },
+      { key: "holzAlu",    label: "Holz-Alu" },
+      { key: "alu",        label: "Aluminium" }
+    ],
+    verschattungOptionen: [
+      { key: "rollladen",    label: "Rollladen" },
+      { key: "jalousie",     label: "Jalousie" },
+      { key: "textilscreen", label: "Textilscreen" },
+      { key: "ohne",         label: "Ohne" }
+    ]
+  },
+
+  // ─── 3.8 Haustür ──────────────────────────────────────────────────
+  "3.8": {
+    title: "Haustür",
+    type: "single",
+    variants: [
+      { key: "kunststoff", tag: "Kunststoff", title: "Kunststoff", schichten: [] },
+      { key: "holz",       tag: "Holz",       title: "Holz",       schichten: [] }
+    ]
+  },
+
+  // ─── 3.9 Steildach ────────────────────────────────────────────────
+  "3.9": {
+    title: "Steildach",
+    type: "steildach",  // spezial: Standardaufbau + Innenausführung-Einzelwahl
+    standard: {
+      title: "Standard-Aufbau (von innen nach außen)",
+      schichten: [
+        { key: "osb",          name: "OSB",                       def: 15,  editable: true },
+        { key: "sparren",      name: "Sparren / Holzweichfaser Einblasdämmung", def: 240, editable: true },
+        { key: "aufsparren",   name: "Aufsparrendämmung",         def: 60,  editable: true },
+        { key: "schalungsbahn",name: "Schalungsbahn",             def: "",  editable: true, placeholder: "mm" },
+        { key: "konterlattung",name: "Konterlattung + Lattung",   def: 70,  editable: true },
+        { key: "eindeckung",   name: "Dacheindeckung",            def: 30,  editable: true }
+      ]
+    },
+    innenausfuehrung: [
+      {
+        key: "sichtdachstuhl",
+        tag: "Sichtdachstuhl",
+        title: "Sichtdachstuhl mit Holzschalung",
+        schichten: [
+          { key: "schalung", name: "Holzschalung", def: 21, editable: true }
+        ],
+        note: "Sichtsparren in Ökobilanz separat hinzufügen"
+      },
+      {
+        key: "platte3s",
+        tag: "3-S-Platte",
+        title: "3-S-Platte Dachstuhl",
+        schichten: [
+          { key: "platte3s", name: "3-S-Platte", def: 19, editable: true }
+        ]
+      },
+      {
+        key: "putz",
+        tag: "Putz",
+        title: "Putz Dachstuhl",
+        schichten: [
+          { key: "fermacell", name: "Fermacell", def: 12.5, editable: true }
+        ]
+      }
+    ]
+  },
+
+  // ─── 3.10 Flachdach ───────────────────────────────────────────────
+  "3.10": {
+    title: "Flachdach",
+    type: "single",
+    variants: [
+      {
+        key: "massivholz",
+        tag: "Massivholz",
+        title: "Massivholz, sichtbar",
+        schichten: [
+          { key: "massivholz",    name: "Massivholz, sichtbar", def: 140, editable: true },
+          { key: "gefaelle",      name: "Gefälledämmung",       def: "",  editable: true, placeholder: "mm" },
+          { key: "abdichtung",    name: "Abdichtung",           def: "",  editable: true, placeholder: "mm" }
+        ]
+      },
+      {
+        key: "stahlbeton",
+        tag: "Stahlbeton",
+        title: "Stahlbetondecke, sichtbar",
+        schichten: [
+          { key: "beton",       name: "Stahlbetondecke, sichtbar", def: 180, editable: true },
+          { key: "gefaelle",    name: "Gefälledämmung",            def: "",  editable: true, placeholder: "mm" },
+          { key: "abdichtung",  name: "Abdichtung",                def: "",  editable: true, placeholder: "mm" }
+        ]
+      }
+    ]
+  },
+
+  // ─── 3.11 Gaube ───────────────────────────────────────────────────
+  "3.11": {
+    title: "Gaube",
+    type: "single",
+    variants: [
+      { key: "flachdach",     tag: "Flachdach",      title: "Flachdach",       schichten: [] },
+      { key: "steildachZ",    tag: "Steildach",      title: "Steildach Ziegel", schichten: [] },
+      { key: "steildachB",    tag: "Steildach",      title: "Steildach Blech",  schichten: [] }
+    ]
+  },
+
+  // ─── 3.12 Treppe ──────────────────────────────────────────────────
+  "3.12": {
+    title: "Treppe",
+    type: "single",
+    variants: [
+      { key: "holz",       tag: "Holz",       title: "Holztreppe",       schichten: [] },
+      { key: "stahlbeton", tag: "Stahlbeton", title: "Stahlbetontreppe", schichten: [] }
+    ]
   }
 };
 
-const BAUTEIL_ORDER_3A = ["3.1", "3.2", "3.3", "3.4"];
+const BAUTEIL_ORDER_3A = ["3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8", "3.9", "3.10", "3.11", "3.12"];
 
 // Welche Bauteile sind in der aktuellen UI aufgeklappt (UI-State, nicht persistiert)
 const bauteilOpen = new Set();
@@ -4005,8 +4248,18 @@ function ensureBauteilState(p, bauteilId){
   if (cat.type === "simple"){
     p.bauteile[bauteilId] = { aktiv: false, daemmung_mm: "", notiz: "" };
   } else if (cat.type === "perGeschoss"){
-    p.bauteile[bauteilId] = { perGeschoss: {} };
+    p.bauteile[bauteilId] = { perGeschoss: {}, notiz: "" };
+  } else if (cat.type === "multiVariant"){
+    // varianten: { "<variantKey>": { aktiv, schichten, fassadePerGeschoss? } }
+    p.bauteile[bauteilId] = { varianten: {}, notiz: "" };
+  } else if (cat.type === "fenster"){
+    // rahmen: string|null  · dachfenster: bool  · verschattungen: { rollladen: "1,3,5", ... }
+    p.bauteile[bauteilId] = { rahmen: null, dachfenster: false, verschattungen: {}, notiz: "" };
+  } else if (cat.type === "steildach"){
+    // standard: { schichten }  · innen: variantKey|null  · innenSchichten: {}
+    p.bauteile[bauteilId] = { aktiv: false, schichten: {}, innen: null, innenSchichten: {}, notiz: "" };
   } else {
+    // single
     p.bauteile[bauteilId] = { variant: null, schichten: {}, notiz: "" };
   }
   return p.bauteile[bauteilId];
@@ -4032,22 +4285,31 @@ function sumSchichten(entry, variant){
   let hasValues = false;
   for (const s of variant.schichten){
     const v = entry.schichten[s.key];
+    let n = NaN;
     if (v !== undefined && v !== "" && !isNaN(parseFloat(v))){
-      total += parseFloat(v);
-      hasValues = true;
-    } else {
-      total += s.def;
+      n = parseFloat(v);
+    } else if (typeof s.def === "number"){
+      n = s.def;
+    } else if (typeof s.def === "string" && s.def !== "" && !isNaN(parseFloat(s.def))){
+      n = parseFloat(s.def);
+    }
+    if (!isNaN(n)){
+      total += n;
       hasValues = true;
     }
   }
-  return hasValues ? Math.round(total) : null;
+  // Auch wenn manche Schichten leer sind: solange mindestens eine Zahl da ist, Summe zurück.
+  return hasValues ? Math.round(total * 10) / 10 : null;
 }
 
 // Wurde eine Schicht vom Default abgeweicht?
 function isSchichtModified(entry, schicht){
   const v = entry.schichten[schicht.key];
   if (v === undefined || v === "") return false;
-  return parseFloat(v) !== schicht.def;
+  const num = parseFloat(v);
+  const defNum = (typeof schicht.def === "number") ? schicht.def : parseFloat(schicht.def);
+  if (isNaN(defNum) && !isNaN(num)) return true;
+  return num !== defNum;
 }
 
 // Sind in einem Bauteil-Aufbau überhaupt Modifikationen?
@@ -4064,7 +4326,7 @@ function bauteilStatus(p, bauteilId){
 
   if (cat.type === "simple"){
     if (!state.aktiv && !state.notiz) return { cls: "empty", text: "—" };
-    if (state.aktiv) return { cls: "set", text: cat.standardLabel.split(":")[0] || "gewählt" };
+    if (state.aktiv) return { cls: "set", text: "gewählt" };
     return { cls: "set", text: "individuell" };
   }
 
@@ -4085,12 +4347,58 @@ function bauteilStatus(p, bauteilId){
     return { cls: "set", text: filled + "/" + ges.length };
   }
 
+  if (cat.type === "multiVariant"){
+    const aktive = [];
+    let mods = 0;
+    for (const v of cat.variants){
+      const e = state.varianten && state.varianten[v.key];
+      if (e && e.aktiv){
+        aktive.push(v.tag);
+        if (hasAnyModification(e, v)) mods++;
+      }
+    }
+    if (!aktive.length && !state.notiz) return { cls: "empty", text: "—" };
+    if (!aktive.length) return { cls: "set", text: "Notiz" };
+    const text = aktive.join(" · ");
+    return { cls: mods > 0 ? "mod" : "set", text: text };
+  }
+
+  if (cat.type === "fenster"){
+    const parts = [];
+    if (state.rahmen){
+      const r = cat.rahmenOptionen.find(o => o.key === state.rahmen);
+      if (r) parts.push(r.label);
+    }
+    if (state.dachfenster) parts.push("+ Dachfenster");
+    if (!parts.length && !state.notiz && !hasVerschattung(state)) return { cls: "empty", text: "—" };
+    return { cls: "set", text: parts.length ? parts.join(" ") : "Verschattung" };
+  }
+
+  if (cat.type === "steildach"){
+    if (!state.aktiv && !state.notiz) return { cls: "empty", text: "—" };
+    if (state.aktiv){
+      const stdMod = hasAnyModification({ schichten: state.schichten }, cat.standard);
+      let label = "Standard";
+      if (state.innen){
+        const i = cat.innenausfuehrung.find(x => x.key === state.innen);
+        if (i) label += " · " + i.tag;
+      }
+      return { cls: stdMod ? "mod" : "set", text: label };
+    }
+    return { cls: "set", text: "individuell" };
+  }
+
   // single
-  if (!state.variant) return { cls: "empty", text: "—" };
+  if (!state.variant) return state.notiz ? { cls: "set", text: "individuell" } : { cls: "empty", text: "—" };
   const v = findVariant(bauteilId, state.variant);
   if (!v) return { cls: "empty", text: "—" };
   if (hasAnyModification(state, v)) return { cls: "mod", text: v.title + " · angepasst" };
   return { cls: "set", text: v.title };
+}
+
+function hasVerschattung(state){
+  if (!state.verschattungen) return false;
+  return Object.values(state.verschattungen).some(v => v && String(v).trim());
 }
 
 // ─── Renderer ───────────────────────────────────────────────────────
@@ -4104,32 +4412,6 @@ function renderSection3(p){
     wrap.append(item);
   }
   wizardContainer.append(wrap);
-
-  // Platzhalter für 3.5-3.12
-  const ph = document.createElement("div");
-  ph.className = "info-hint";
-  ph.style.marginTop = "12px";
-  const svgNS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(svgNS, "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "1.8");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  const c = document.createElementNS(svgNS, "circle");
-  c.setAttribute("cx", "12"); c.setAttribute("cy", "12"); c.setAttribute("r", "9");
-  const l1 = document.createElementNS(svgNS, "line");
-  l1.setAttribute("x1","12"); l1.setAttribute("y1","8");
-  l1.setAttribute("x2","12"); l1.setAttribute("y2","12");
-  const l2 = document.createElementNS(svgNS, "line");
-  l2.setAttribute("x1","12"); l2.setAttribute("y1","16");
-  l2.setAttribute("x2","12.01"); l2.setAttribute("y2","16");
-  svg.append(c, l1, l2);
-  const txt = document.createElement("span");
-  txt.textContent = "Bauteile 3.5 – 3.12 (Wände, Fenster, Haustür, Steildach, Flachdach, Gaube, Treppe) kommen in der nächsten Etappe.";
-  ph.append(svg, txt);
-  wizardContainer.append(ph);
 }
 
 function renderBauteilItem(p, bauteilId){
@@ -4190,6 +4472,12 @@ function renderBauteilItem(p, bauteilId){
       renderBauteilSimple(body, p, bauteilId);
     } else if (cat.type === "perGeschoss"){
       renderBauteilPerGeschoss(body, p, bauteilId);
+    } else if (cat.type === "multiVariant"){
+      renderBauteilMultiVariant(body, p, bauteilId);
+    } else if (cat.type === "fenster"){
+      renderBauteilFenster(body, p, bauteilId);
+    } else if (cat.type === "steildach"){
+      renderBauteilSteildach(body, p, bauteilId);
     } else {
       renderBauteilSingle(body, p, bauteilId);
     }
@@ -4669,9 +4957,596 @@ function sectionHasDataBauteile(p){
         const e = pg[k];
         if (e.variant || e.notiz) return true;
       }
+      if (state.notiz) return true;
+    } else if (cat.type === "multiVariant"){
+      const vs = state.varianten || {};
+      for (const k in vs){
+        if (vs[k] && vs[k].aktiv) return true;
+      }
+      if (state.notiz) return true;
+    } else if (cat.type === "fenster"){
+      if (state.rahmen || state.dachfenster || hasVerschattung(state) || state.notiz) return true;
+    } else if (cat.type === "steildach"){
+      if (state.aktiv || state.innen || state.notiz) return true;
     } else {
       if (state.variant || state.notiz) return true;
     }
   }
   return false;
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SEKTION 3 — Renderer für die neuen Bauteil-Typen (multiVariant/fenster/steildach)
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─── multiVariant (3.5, 3.6): mehrere Wand-Typen unabhängig anklickbar ─────
+function renderBauteilMultiVariant(body, p, bauteilId){
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  const state = ensureBauteilState(p, bauteilId);
+  if (!state.varianten) state.varianten = {};
+
+  // Toggle-Grid für alle verfügbaren Wand-Typen
+  const toggleGrid = document.createElement("div");
+  toggleGrid.style.display = "grid";
+  toggleGrid.style.gridTemplateColumns = "repeat(2, 1fr)";
+  toggleGrid.style.gap = "6px";
+  toggleGrid.style.marginBottom = "12px";
+
+  for (const v of cat.variants){
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "option-pill";
+    const aktiv = !!(state.varianten[v.key] && state.varianten[v.key].aktiv);
+    if (aktiv) btn.classList.add("active");
+    btn.style.textAlign = "left";
+    btn.style.padding = "8px 10px";
+    btn.style.fontSize = "12px";
+    btn.style.display = "flex";
+    btn.style.alignItems = "center";
+    btn.style.gap = "6px";
+    // Häkchen-Icon wenn aktiv
+    if (aktiv){
+      const svgNS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(svgNS, "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("fill", "none");
+      svg.setAttribute("stroke", "currentColor");
+      svg.setAttribute("stroke-width", "2.5");
+      svg.setAttribute("stroke-linecap", "round");
+      svg.setAttribute("stroke-linejoin", "round");
+      svg.style.width = "12px"; svg.style.height = "12px";
+      const poly = document.createElementNS(svgNS, "polyline");
+      poly.setAttribute("points", "5 12 10 17 19 7");
+      svg.append(poly);
+      btn.append(svg);
+    }
+    btn.append(document.createTextNode(v.tag));
+    btn.addEventListener("click", () => {
+      if (!state.varianten[v.key]){
+        state.varianten[v.key] = { aktiv: true, schichten: {}, fassadePerGeschoss: {} };
+      } else {
+        state.varianten[v.key].aktiv = !state.varianten[v.key].aktiv;
+      }
+      touchActive();
+      renderSection3(p);
+      renderWizardChrome();
+    });
+    toggleGrid.append(btn);
+  }
+  body.append(toggleGrid);
+
+  // Für jede aktive Variante einen Aufbau-Block
+  for (const v of cat.variants){
+    const e = state.varianten[v.key];
+    if (!e || !e.aktiv) continue;
+
+    const varBlock = document.createElement("div");
+    varBlock.style.marginBottom = "12px";
+
+    // Mini-Header zur Identifikation
+    const head = document.createElement("div");
+    head.style.fontFamily = "var(--font-mono)";
+    head.style.fontSize = "11px";
+    head.style.color = "var(--text-3)";
+    head.style.marginBottom = "4px";
+    head.style.letterSpacing = "0.03em";
+    head.textContent = v.tag + " · " + v.title;
+    varBlock.append(head);
+
+    // Aufbau-Block (wiederverwendet)
+    const block = makeAufbauBlock(v, e, p, bauteilId, null);
+    varBlock.append(block);
+
+    // Fassaden-Matrix pro Geschoss bei AW-Typen
+    if (v.hasFassade && cat.fassaden){
+      varBlock.append(makeFassadenMatrix(p, bauteilId, v, e));
+    }
+
+    body.append(varBlock);
+  }
+
+  // Notiz
+  body.append(makeNotizFeld(state.notiz || "", (val) => {
+    state.notiz = sanitizeStr(val, MAX_PROJECT_TEXT_LEN);
+    touchActive();
+  }));
+}
+
+// Fassaden-Matrix: pro Geschoss eine Auswahl aus den 7 Optionen
+function makeFassadenMatrix(p, bauteilId, variant, entry){
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  const geschosse = (p.geschosse || []).filter(g =>
+    g.key && g.key.trim() && g.value && g.value.trim());
+
+  const wrap = document.createElement("div");
+  wrap.style.background = "var(--surface)";
+  wrap.style.border = "1px solid var(--border)";
+  wrap.style.borderRadius = "8px";
+  wrap.style.padding = "10px 12px";
+  wrap.style.marginTop = "6px";
+
+  const lab = document.createElement("div");
+  lab.style.fontSize = "10px";
+  lab.style.color = "var(--text-3)";
+  lab.style.textTransform = "uppercase";
+  lab.style.letterSpacing = "0.04em";
+  lab.style.marginBottom = "6px";
+  lab.style.fontWeight = "500";
+  lab.textContent = "Fassade pro Geschoss";
+  wrap.append(lab);
+
+  if (!geschosse.length){
+    const h = document.createElement("div");
+    h.style.fontSize = "12px";
+    h.style.color = "var(--text-2)";
+    h.textContent = "Erst Geschosse in Sektion 2 anlegen";
+    wrap.append(h);
+    return wrap;
+  }
+
+  if (!entry.fassadePerGeschoss) entry.fassadePerGeschoss = {};
+
+  for (const g of geschosse){
+    const row = document.createElement("div");
+    row.style.display = "grid";
+    row.style.gridTemplateColumns = "70px 1fr";
+    row.style.gap = "8px";
+    row.style.alignItems = "center";
+    row.style.marginBottom = "4px";
+
+    const gl = document.createElement("span");
+    gl.style.fontFamily = "var(--font-mono)";
+    gl.style.fontSize = "11px";
+    gl.style.color = "var(--text-2)";
+    gl.textContent = g.key;
+
+    const sel = document.createElement("select");
+    sel.className = "wiz-input";
+    sel.style.fontSize = "12px";
+    sel.style.padding = "6px 8px";
+    const none = document.createElement("option");
+    none.value = ""; none.textContent = "— wählen —";
+    sel.append(none);
+    for (const f of cat.fassaden){
+      const opt = document.createElement("option");
+      opt.value = f.key;
+      opt.textContent = f.label + " · " + f.key;
+      if (entry.fassadePerGeschoss[g.key] === f.key) opt.selected = true;
+      sel.append(opt);
+    }
+    sel.addEventListener("change", () => {
+      if (sel.value){
+        entry.fassadePerGeschoss[g.key] = sel.value;
+      } else {
+        delete entry.fassadePerGeschoss[g.key];
+      }
+      touchActive();
+      // Status-Pill aktualisieren — kein Full-Render nötig
+      const itemEl = wrap.closest(".bauteil-item");
+      if (itemEl){
+        const statusEl = itemEl.querySelector(".bh-status");
+        if (statusEl){
+          const proj = findProject(activeProjectId);
+          const status = bauteilStatus(proj, bauteilId);
+          statusEl.className = "bh-status " + status.cls;
+          statusEl.textContent = status.text;
+        }
+      }
+    });
+    row.append(gl, sel);
+    wrap.append(row);
+  }
+  return wrap;
+}
+
+// ─── fenster (3.7): Rahmen-Einzelwahl + Dachfenster + Verschattung-Listen ───
+function renderBauteilFenster(body, p, bauteilId){
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  const state = ensureBauteilState(p, bauteilId);
+
+  // Rahmenmaterial — Einzelwahl
+  const rahmenCard = document.createElement("div");
+  rahmenCard.style.background = "var(--surface)";
+  rahmenCard.style.border = "1px solid var(--border)";
+  rahmenCard.style.borderRadius = "8px";
+  rahmenCard.style.padding = "10px 12px";
+  rahmenCard.style.marginBottom = "10px";
+
+  const rLab = document.createElement("div");
+  rLab.style.fontSize = "10px";
+  rLab.style.color = "var(--text-3)";
+  rLab.style.textTransform = "uppercase";
+  rLab.style.letterSpacing = "0.04em";
+  rLab.style.marginBottom = "6px";
+  rLab.style.fontWeight = "500";
+  rLab.textContent = "Rahmenmaterial · eine Wahl fürs Gebäude";
+  rahmenCard.append(rLab);
+
+  const rPills = document.createElement("div");
+  rPills.className = "option-pills";
+  for (const o of cat.rahmenOptionen){
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = "option-pill";
+    if (state.rahmen === o.key) pill.classList.add("active");
+    pill.textContent = o.label;
+    pill.addEventListener("click", () => {
+      state.rahmen = (state.rahmen === o.key) ? null : o.key;
+      touchActive();
+      renderSection3(p);
+      renderWizardChrome();
+    });
+    rPills.append(pill);
+  }
+  rahmenCard.append(rPills);
+  body.append(rahmenCard);
+
+  // Dachfenster — zusätzliche Mehrfach-Option
+  const dfCard = document.createElement("div");
+  dfCard.style.background = "var(--surface)";
+  dfCard.style.border = "1px solid var(--border)";
+  dfCard.style.borderRadius = "8px";
+  dfCard.style.padding = "0";
+  dfCard.style.marginBottom = "10px";
+
+  const dfRow = document.createElement("button");
+  dfRow.type = "button";
+  dfRow.className = "checkbox-row";
+  dfRow.style.background = "transparent";
+  dfRow.style.border = "none";
+  dfRow.style.padding = "10px 12px";
+  dfRow.style.width = "100%";
+  if (state.dachfenster) dfRow.classList.add("checked");
+  const box = document.createElement("span");
+  box.className = "box";
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svgC = document.createElementNS(svgNS, "svg");
+  svgC.setAttribute("viewBox", "0 0 24 24");
+  svgC.setAttribute("fill", "none");
+  svgC.setAttribute("stroke", "currentColor");
+  svgC.setAttribute("stroke-linecap", "round");
+  svgC.setAttribute("stroke-linejoin", "round");
+  const polyC = document.createElementNS(svgNS, "polyline");
+  polyC.setAttribute("points", "5 12 10 17 19 7");
+  svgC.append(polyC);
+  box.append(svgC);
+  const lab = document.createElement("span");
+  lab.className = "label";
+  lab.textContent = "Dachfenster vorhanden";
+  dfRow.append(box, lab);
+  dfRow.addEventListener("click", () => {
+    state.dachfenster = !state.dachfenster;
+    touchActive();
+    renderSection3(p);
+    renderWizardChrome();
+  });
+  dfCard.append(dfRow);
+  body.append(dfCard);
+
+  // Verschattung — pro Typ eine Mehrfachauswahl (Fenster-Nr.-Liste)
+  const vsCard = document.createElement("div");
+  vsCard.style.background = "var(--surface)";
+  vsCard.style.border = "1px solid var(--border)";
+  vsCard.style.borderRadius = "8px";
+  vsCard.style.padding = "10px 12px";
+  vsCard.style.marginBottom = "10px";
+
+  const vsLab = document.createElement("div");
+  vsLab.style.fontSize = "10px";
+  vsLab.style.color = "var(--text-3)";
+  vsLab.style.textTransform = "uppercase";
+  vsLab.style.letterSpacing = "0.04em";
+  vsLab.style.marginBottom = "8px";
+  vsLab.style.fontWeight = "500";
+  vsLab.append(document.createTextNode("Verschattung "));
+  const hint = document.createElement("span");
+  hint.style.fontWeight = "400";
+  hint.style.textTransform = "none";
+  hint.style.letterSpacing = "0";
+  hint.style.color = "var(--text-3)";
+  hint.textContent = "· Fenster-Nr. oder Raum eintragen, z.B. \"1, 3, 5\" oder \"Wohnzimmer, Bad\"";
+  vsLab.append(hint);
+  vsCard.append(vsLab);
+
+  if (!state.verschattungen) state.verschattungen = {};
+
+  for (const v of cat.verschattungOptionen){
+    const row = document.createElement("div");
+    row.style.display = "grid";
+    row.style.gridTemplateColumns = "120px 1fr";
+    row.style.gap = "8px";
+    row.style.alignItems = "center";
+    row.style.marginBottom = "5px";
+
+    const l = document.createElement("span");
+    l.style.fontSize = "12px";
+    l.style.color = "var(--text-2)";
+    l.textContent = v.label;
+
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.className = "wiz-input";
+    inp.style.fontSize = "12px";
+    inp.style.padding = "6px 10px";
+    inp.maxLength = MAX_PROJECT_TEXT_LEN;
+    inp.placeholder = "Fenster-Nr / Raum";
+    inp.value = state.verschattungen[v.key] || "";
+    inp.addEventListener("input", () => {
+      const val = sanitizeStr(inp.value, MAX_PROJECT_TEXT_LEN);
+      if (val.trim()) state.verschattungen[v.key] = val;
+      else delete state.verschattungen[v.key];
+      touchActive();
+      // Status-Pill aktualisieren
+      const itemEl = vsCard.closest(".bauteil-item");
+      if (itemEl){
+        const statusEl = itemEl.querySelector(".bh-status");
+        if (statusEl){
+          const proj = findProject(activeProjectId);
+          const status = bauteilStatus(proj, bauteilId);
+          statusEl.className = "bh-status " + status.cls;
+          statusEl.textContent = status.text;
+        }
+      }
+    });
+
+    row.append(l, inp);
+    vsCard.append(row);
+  }
+  body.append(vsCard);
+
+  // Notiz
+  body.append(makeNotizFeld(state.notiz || "", (val) => {
+    state.notiz = sanitizeStr(val, MAX_PROJECT_TEXT_LEN);
+    touchActive();
+  }));
+}
+
+// ─── steildach (3.9): Standardaufbau editierbar + Innen-Einzelwahl ─────────
+function renderBauteilSteildach(body, p, bauteilId){
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  const state = ensureBauteilState(p, bauteilId);
+
+  // Aktivierungs-Häkchen für den Standardaufbau
+  const chk = document.createElement("button");
+  chk.type = "button";
+  chk.className = "checkbox-row";
+  chk.style.background = "var(--surface)";
+  chk.style.border = "1px solid var(--border)";
+  chk.style.borderRadius = "8px";
+  chk.style.padding = "10px 12px";
+  chk.style.width = "100%";
+  chk.style.marginBottom = "10px";
+  if (state.aktiv) chk.classList.add("checked");
+  const box = document.createElement("span");
+  box.className = "box";
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svgC = document.createElementNS(svgNS, "svg");
+  svgC.setAttribute("viewBox", "0 0 24 24");
+  svgC.setAttribute("fill", "none");
+  svgC.setAttribute("stroke", "currentColor");
+  svgC.setAttribute("stroke-linecap", "round");
+  svgC.setAttribute("stroke-linejoin", "round");
+  const polyC = document.createElementNS(svgNS, "polyline");
+  polyC.setAttribute("points", "5 12 10 17 19 7");
+  svgC.append(polyC);
+  box.append(svgC);
+  const lab = document.createElement("span");
+  lab.className = "label";
+  lab.textContent = "Steildach verbaut · Standard-Aufbau aktivieren";
+  chk.append(box, lab);
+  chk.addEventListener("click", () => {
+    state.aktiv = !state.aktiv;
+    touchActive();
+    renderSection3(p);
+    renderWizardChrome();
+  });
+  body.append(chk);
+
+  if (state.aktiv){
+    // Standard-Aufbau als Aufbau-Block (wiederverwendet, virtuelle Variante)
+    const virtVariant = {
+      key: "_standard",
+      title: cat.standard.title,
+      schichten: cat.standard.schichten
+    };
+    const entry = { schichten: state.schichten };
+    const block = makeAufbauBlock(virtVariant, entry, p, bauteilId, null);
+    // Nach jeder Änderung muss state.schichten gespiegelt werden — das funktioniert
+    // schon automatisch, weil entry.schichten dieselbe Referenz ist.
+    state.schichten = entry.schichten;
+    body.append(block);
+
+    // Innenausführung — Einzelwahl
+    const innenCard = document.createElement("div");
+    innenCard.style.marginTop = "12px";
+    innenCard.style.background = "var(--surface)";
+    innenCard.style.border = "1px solid var(--border)";
+    innenCard.style.borderRadius = "8px";
+    innenCard.style.padding = "10px 12px";
+
+    const iLab = document.createElement("div");
+    iLab.style.fontSize = "10px";
+    iLab.style.color = "var(--text-3)";
+    iLab.style.textTransform = "uppercase";
+    iLab.style.letterSpacing = "0.04em";
+    iLab.style.marginBottom = "8px";
+    iLab.style.fontWeight = "500";
+    iLab.textContent = "Innenausführung · eine Wahl";
+    innenCard.append(iLab);
+
+    const grid = document.createElement("div");
+    grid.className = "variant-grid cols-1";
+    for (const v of cat.innenausfuehrung){
+      const card = makeVariantCard(v, state.innen === v.key, () => {
+        state.innen = (state.innen === v.key) ? null : v.key;
+        // Reset Schichten beim Wechsel
+        state.innenSchichten = {};
+        touchActive();
+        renderSection3(p);
+        renderWizardChrome();
+      });
+      grid.append(card);
+    }
+    innenCard.append(grid);
+
+    // Wenn Innenausführung gewählt, Schicht-Block dazu
+    if (state.innen){
+      const iv = cat.innenausfuehrung.find(x => x.key === state.innen);
+      if (iv && iv.schichten.length){
+        const innenEntry = { schichten: state.innenSchichten };
+        const innenBlock = makeAufbauBlock(iv, innenEntry, p, bauteilId, null);
+        innenBlock.style.marginTop = "8px";
+        innenCard.append(innenBlock);
+        state.innenSchichten = innenEntry.schichten;
+        // Note
+        if (iv.note){
+          const noteEl = document.createElement("div");
+          noteEl.style.fontSize = "11px";
+          noteEl.style.color = "var(--text-2)";
+          noteEl.style.marginTop = "6px";
+          noteEl.style.fontStyle = "italic";
+          noteEl.textContent = iv.note;
+          innenCard.append(noteEl);
+        }
+      }
+    }
+
+    body.append(innenCard);
+  }
+
+  // Notiz
+  body.append(makeNotizFeld(state.notiz || "", (val) => {
+    state.notiz = sanitizeStr(val, MAX_PROJECT_TEXT_LEN);
+    touchActive();
+  }));
+}
+
+// ─── sanitizeProject erweitern: tiefere Sanitisierung der bauteile.* ─────
+// Wir patchen nicht die Funktion selbst, sondern wrappen den `projects.push`-
+// Pfad in loadProjects/importProjects über einen Post-Sanitizer.
+function sanitizeBauteile(p){
+  if (!p || !p.bauteile || typeof p.bauteile !== "object") return p;
+  const src = p.bauteile;
+  const clean = {};
+  for (const id of BAUTEIL_ORDER_3A){
+    const s = src[id];
+    if (!s || typeof s !== "object") continue;
+    const cat = BAUTEIL_CATALOG[id];
+    if (cat.type === "simple"){
+      clean[id] = {
+        aktiv: !!s.aktiv,
+        daemmung_mm: sanitizeStr(s.daemmung_mm, 8),
+        notiz: sanitizeStr(s.notiz, MAX_PROJECT_TEXT_LEN)
+      };
+    } else if (cat.type === "perGeschoss"){
+      const pg = {};
+      if (s.perGeschoss && typeof s.perGeschoss === "object"){
+        for (const k in s.perGeschoss){
+          const e = s.perGeschoss[k];
+          if (!e || typeof e !== "object") continue;
+          const variantKey = (cat.variants || []).some(v => v.key === e.variant) ? e.variant : null;
+          pg[sanitizeLabel(k, 24)] = {
+            variant: variantKey,
+            schichten: sanitizeSchichten(e.schichten),
+            notiz: sanitizeStr(e.notiz, MAX_PROJECT_TEXT_LEN)
+          };
+        }
+      }
+      clean[id] = { perGeschoss: pg, notiz: sanitizeStr(s.notiz, MAX_PROJECT_TEXT_LEN) };
+    } else if (cat.type === "multiVariant"){
+      const vs = {};
+      if (s.varianten && typeof s.varianten === "object"){
+        for (const v of cat.variants){
+          const e = s.varianten[v.key];
+          if (!e || typeof e !== "object") continue;
+          const fpg = {};
+          if (v.hasFassade && e.fassadePerGeschoss && typeof e.fassadePerGeschoss === "object" && cat.fassaden){
+            const validKeys = new Set(cat.fassaden.map(f => f.key));
+            for (const gk in e.fassadePerGeschoss){
+              if (validKeys.has(e.fassadePerGeschoss[gk])){
+                fpg[sanitizeLabel(gk, 12)] = e.fassadePerGeschoss[gk];
+              }
+            }
+          }
+          vs[v.key] = {
+            aktiv: !!e.aktiv,
+            schichten: sanitizeSchichten(e.schichten),
+            fassadePerGeschoss: fpg
+          };
+        }
+      }
+      clean[id] = { varianten: vs, notiz: sanitizeStr(s.notiz, MAX_PROJECT_TEXT_LEN) };
+    } else if (cat.type === "fenster"){
+      const validRahmen = new Set(cat.rahmenOptionen.map(o => o.key));
+      const verschVK = new Set(cat.verschattungOptionen.map(o => o.key));
+      const vs = {};
+      if (s.verschattungen && typeof s.verschattungen === "object"){
+        for (const k in s.verschattungen){
+          if (verschVK.has(k)){
+            vs[k] = sanitizeStr(s.verschattungen[k], MAX_PROJECT_TEXT_LEN);
+          }
+        }
+      }
+      clean[id] = {
+        rahmen: validRahmen.has(s.rahmen) ? s.rahmen : null,
+        dachfenster: !!s.dachfenster,
+        verschattungen: vs,
+        notiz: sanitizeStr(s.notiz, MAX_PROJECT_TEXT_LEN)
+      };
+    } else if (cat.type === "steildach"){
+      const validInnen = new Set((cat.innenausfuehrung || []).map(o => o.key));
+      clean[id] = {
+        aktiv: !!s.aktiv,
+        schichten: sanitizeSchichten(s.schichten),
+        innen: validInnen.has(s.innen) ? s.innen : null,
+        innenSchichten: sanitizeSchichten(s.innenSchichten),
+        notiz: sanitizeStr(s.notiz, MAX_PROJECT_TEXT_LEN)
+      };
+    } else {
+      const variantKey = (cat.variants || []).some(v => v.key === s.variant) ? s.variant : null;
+      clean[id] = {
+        variant: variantKey,
+        schichten: sanitizeSchichten(s.schichten),
+        notiz: sanitizeStr(s.notiz, MAX_PROJECT_TEXT_LEN)
+      };
+    }
+  }
+  p.bauteile = clean;
+  return p;
+}
+
+function sanitizeSchichten(raw){
+  const out = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const k in raw){
+    if (typeof k !== "string" || k.length > 32) continue;
+    const v = raw[k];
+    if (typeof v === "string" && v.length <= 8){
+      out[k] = v;
+    } else if (typeof v === "number" && isFinite(v)){
+      out[k] = String(v);
+    }
+  }
+  return out;
 }
