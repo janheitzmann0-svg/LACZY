@@ -2,7 +2,7 @@
 // Strategie: Cache-First für die App-Shell. Voll offline-fähig nach erstem Laden.
 // Cross-Origin-Anfragen werden auf eine explizite Whitelist beschränkt.
 
-const VERSION = 'laczy-v4.6.0';
+const VERSION = 'laczy-v4.7.0';
 const CACHE = `laczy-cache-${VERSION}`;
 
 // Alle für den Offline-Betrieb benötigten Dateien (Same-Origin).
@@ -18,7 +18,12 @@ const CORE_ASSETS = [
   './favicon.png',
   './detail-gs40-profil.jpg',
   './detail-anschluss-vertikal.jpg',
-  './detail-anschluss-horizontal.jpg'
+  './detail-anschluss-horizontal.jpg',
+  './libs/jspdf.umd.min.js',
+  './libs/fraunces-regular.ttf',
+  './libs/fraunces-medium.ttf',
+  './libs/dmsans-regular.ttf',
+  './libs/dmsans-medium.ttf'
 ];
 
 // Cross-Origin-Whitelist — nur diese Hosts dürfen Inhalte liefern.

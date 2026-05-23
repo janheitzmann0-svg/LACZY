@@ -4,7 +4,7 @@
 // Wenn der Browser eine alte index.html mit einer neuen app.js kombiniert
 // (oder umgekehrt), erkennen wir das hier und erzwingen einen Reload mit
 // Cache-Umgehung. Verhindert "geht plötzlich nichts mehr"-Symptome.
-const LACZY_JS_VERSION = "laczy-v4.6.0";
+const LACZY_JS_VERSION = "laczy-v4.7.0";
 (function versionWatchdog(){
   try {
     // Notfall-Reset via URL-Parameter: ?reset=1 leert Cache und lädt neu
@@ -3124,7 +3124,37 @@ function renderProjectList(){
     svg.append(poly);
     arrow.append(svg);
 
-    item.append(body, badge, arrow);
+    // PDF-Export-Button (eigenes span, damit der Klick darauf den Card-Click verschluckt)
+    const pdfBtn = document.createElement("span");
+    pdfBtn.className = "pi-arrow";
+    pdfBtn.title = "Als PDF ausgeben";
+    pdfBtn.setAttribute("role", "button");
+    pdfBtn.setAttribute("tabindex", "0");
+    pdfBtn.style.cursor = "pointer";
+    const psvg = document.createElementNS(svgNS, "svg");
+    psvg.setAttribute("viewBox", "0 0 24 24");
+    psvg.setAttribute("fill", "none");
+    psvg.setAttribute("stroke", "currentColor");
+    psvg.setAttribute("stroke-width", "2");
+    psvg.setAttribute("stroke-linecap", "round");
+    psvg.setAttribute("stroke-linejoin", "round");
+    const pPath = document.createElementNS(svgNS, "path");
+    pPath.setAttribute("d", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4");
+    const pPoly = document.createElementNS(svgNS, "polyline");
+    pPoly.setAttribute("points", "7 10 12 15 17 10");
+    const pLine = document.createElementNS(svgNS, "line");
+    pLine.setAttribute("x1", "12"); pLine.setAttribute("y1", "15");
+    pLine.setAttribute("x2", "12"); pLine.setAttribute("y2", "3");
+    psvg.append(pPath, pPoly, pLine);
+    pdfBtn.append(psvg);
+    pdfBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (typeof exportProjectAsPdf === "function"){
+        exportProjectAsPdf(p.id);
+      }
+    });
+
+    item.append(body, badge, pdfBtn, arrow);
     item.addEventListener("click", () => enterWizard(p.id));
     projektListEl.append(item);
   }
@@ -3940,7 +3970,7 @@ const BAUTEIL_CATALOG = {
   },
 
   "3.3": {
-    title: "Boden gegen unbeheizt / Außenluft",
+    title: "Boden gg. unbeheizt",
     type: "simple",  // Häkchen + ein Stärke-Feld + Notiz
     standardLabel: "TG-Decke: Isover topdec dp3 · WLG 035",
     schichtName: "Dämmung Kaltseite"
@@ -6461,3 +6491,678 @@ function sanitizeSection8(raw){
   if (valid.has(raw.umfang)) out.umfang = raw.umfang;
   return out;
 }
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// PDF-AUSGABE — Projektkartei als 2-3-Seiten-PDF im LACZY-Stil
+// ════════════════════════════════════════════════════════════════════════════
+
+// Farben (LACZY-Stil, RGB für jsPDF)
+const PDF_COLORS = {
+  bg:        [251, 248, 241],  // var(--surface) warmes Papier
+  text:      [42, 47, 38],     // var(--text) dunkles Olivgrün
+  text2:     [107, 116, 102],  // var(--text-2) gedämpft
+  text3:     [163, 158, 142],  // var(--text-3) noch leiser
+  border:    [203, 195, 174],  // dezent
+  terra:     [168, 104, 64],   // var(--terra-deep)
+  sage:      [122, 145, 104],  // var(--sage)
+  ruleSoft:  [220, 213, 195]   // Trennlinien fein
+};
+
+// A4 Maße (jsPDF mm)
+const PDF_PAGE = {
+  width: 210, height: 297,
+  marginX: 18, marginTop: 18, marginBottom: 18,
+  contentWidth: 174  // 210 − 2×18
+};
+
+// Schriftarten-Pfade
+const PDF_FONTS = [
+  { file: "libs/fraunces-regular.ttf", name: "Fraunces",  style: "normal" },
+  { file: "libs/fraunces-medium.ttf",  name: "Fraunces",  style: "bold" },
+  { file: "libs/dmsans-regular.ttf",   name: "DMSans",    style: "normal" },
+  { file: "libs/dmsans-medium.ttf",    name: "DMSans",    style: "bold" }
+];
+
+let pdfFontsLoaded = false;
+let pdfFontsData = null;
+
+async function loadPdfFonts(){
+  if (pdfFontsLoaded) return pdfFontsData;
+  const out = {};
+  for (const f of PDF_FONTS){
+    const res = await fetch(f.file);
+    if (!res.ok) throw new Error("Font konnte nicht geladen werden: " + f.file);
+    const buf = await res.arrayBuffer();
+    // ArrayBuffer → Base64 (jsPDF braucht Base64-VFS)
+    let bin = "";
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    out[f.file] = { b64: btoa(bin), name: f.name, style: f.style };
+  }
+  pdfFontsData = out;
+  pdfFontsLoaded = true;
+  return out;
+}
+
+// ─── PDF-Builder mit Cursor und Helpern ────────────────────────────
+function makePdfBuilder(doc){
+  let y = PDF_PAGE.marginTop;
+  let pageNo = 1;
+  let totalPages = 0;  // wird am Ende gesetzt
+  const projectName = { value: "" };  // Closure-Box damit Footer aktualisiert
+
+  function setFont(name, style, size){
+    doc.setFont(name, style);
+    doc.setFontSize(size);
+  }
+  function setColor(rgb){
+    doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+  }
+  function setDrawColor(rgb){
+    doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+  }
+  function setFillColor(rgb){
+    doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+  }
+
+  function paintPageBackground(){
+    setFillColor(PDF_COLORS.bg);
+    doc.rect(0, 0, PDF_PAGE.width, PDF_PAGE.height, "F");
+  }
+
+  function pageHeader(){
+    // Logo + Subtitle (links)
+    setFont("Fraunces", "bold", 22);
+    setColor(PDF_COLORS.text);
+    doc.text("Laczy", PDF_PAGE.marginX, PDF_PAGE.marginTop + 2);
+    setFont("DMSans", "normal", 7);
+    setColor(PDF_COLORS.text2);
+    doc.text("Projektkartei für die EcoCad-Eingabe",
+             PDF_PAGE.marginX, PDF_PAGE.marginTop + 6);
+
+    // Rechts: Datum, Pfad
+    setFont("DMSans", "normal", 7);
+    setColor(PDF_COLORS.text2);
+    const right = PDF_PAGE.width - PDF_PAGE.marginX;
+    const today = new Date().toLocaleDateString("de-DE", {
+      day: "numeric", month: "long", year: "numeric"
+    });
+    doc.text(today, right, PDF_PAGE.marginTop + 6, { align: "right" });
+
+    // Terra-Linie unter dem Header
+    setDrawColor(PDF_COLORS.terra);
+    doc.setLineWidth(0.4);
+    doc.line(PDF_PAGE.marginX, PDF_PAGE.marginTop + 9,
+             right, PDF_PAGE.marginTop + 9);
+
+    y = PDF_PAGE.marginTop + 14;
+  }
+
+  function pageFooter(){
+    const bottom = PDF_PAGE.height - PDF_PAGE.marginBottom + 8;
+    setDrawColor(PDF_COLORS.ruleSoft);
+    doc.setLineWidth(0.2);
+    doc.line(PDF_PAGE.marginX, bottom - 3,
+             PDF_PAGE.width - PDF_PAGE.marginX, bottom - 3);
+    setFont("DMSans", "normal", 6.5);
+    setColor(PDF_COLORS.text3);
+    doc.text(projectName.value + " · Projektkartei",
+             PDF_PAGE.marginX, bottom);
+    doc.text("Seite " + pageNo + (totalPages ? " von " + totalPages : ""),
+             PDF_PAGE.width - PDF_PAGE.marginX, bottom, { align: "right" });
+  }
+
+  function newPage(){
+    doc.addPage();
+    pageNo++;
+    paintPageBackground();
+    pageHeader();
+    pageFooter();
+  }
+
+  // Stellt sicher, dass auf der aktuellen Seite noch `needed` mm Platz ist
+  function ensureSpace(needed){
+    const bottomLimit = PDF_PAGE.height - PDF_PAGE.marginBottom - 4;
+    if (y + needed > bottomLimit){
+      newPage();
+    }
+  }
+
+  // Sektions-Header (Nummer + Titel + Trennlinie)
+  function sectionHeader(no, title){
+    ensureSpace(11);
+    setFont("DMSans", "bold", 7);
+    setColor(PDF_COLORS.terra);
+    doc.text(no, PDF_PAGE.marginX, y);
+    setFont("Fraunces", "bold", 12);
+    setColor(PDF_COLORS.text);
+    doc.text(title, PDF_PAGE.marginX + 9, y);
+    y += 1.8;
+    setDrawColor(PDF_COLORS.ruleSoft);
+    doc.setLineWidth(0.2);
+    doc.line(PDF_PAGE.marginX, y,
+             PDF_PAGE.width - PDF_PAGE.marginX, y);
+    y += 4;
+  }
+
+  // Großer Projekttitel (nur einmal auf Seite 1)
+  function projectTitle(name, pfad, gebTyp){
+    projectName.value = name;
+    setFont("Fraunces", "bold", 20);
+    setColor(PDF_COLORS.text);
+    doc.text(name, PDF_PAGE.marginX, y + 5);
+    y += 9;
+    setFont("DMSans", "normal", 8);
+    setColor(PDF_COLORS.text2);
+    const parts = [];
+    if (pfad)   parts.push(pfad);
+    if (gebTyp) parts.push(gebTyp);
+    if (parts.length){
+      doc.text(parts.join(" · "), PDF_PAGE.marginX, y + 2);
+      y += 4;
+    }
+    y += 4;
+  }
+
+  // Label-Wert-Zeile in zwei Spalten
+  function kvRow(label, value){
+    const labelCol = 38;
+    const lineH = 4.6;
+    ensureSpace(lineH);
+    setFont("DMSans", "normal", 8.5);
+    setColor(PDF_COLORS.text2);
+    doc.text(label, PDF_PAGE.marginX, y);
+    setColor(PDF_COLORS.text);
+    const valX = PDF_PAGE.marginX + labelCol;
+    const valWidth = PDF_PAGE.contentWidth - labelCol;
+    const valStr = value || "—";
+    const lines = doc.splitTextToSize(valStr, valWidth);
+    doc.text(lines, valX, y);
+    y += Math.max(lineH, lines.length * 3.8);
+  }
+
+  // Drei-Spalten-Bauteil-Zeile: Nr | Label | Wert
+  function bauteilRow(nr, label, value){
+    const nrCol = 10, labelCol = 36;
+    const lineH = 4.0;
+    ensureSpace(lineH);
+    setFont("DMSans", "bold", 7);
+    setColor(PDF_COLORS.terra);
+    doc.text(nr, PDF_PAGE.marginX, y);
+    setFont("DMSans", "normal", 8);
+    setColor(PDF_COLORS.text2);
+    // Label clip: lange Bauteil-Titel kürzen mit splitTextToSize, max 1 Zeile
+    const labelLines = doc.splitTextToSize(label, labelCol - 1);
+    doc.text(labelLines[0], PDF_PAGE.marginX + nrCol, y);
+    setColor(PDF_COLORS.text);
+    const valX = PDF_PAGE.marginX + nrCol + labelCol;
+    const valWidth = PDF_PAGE.contentWidth - nrCol - labelCol;
+    const lines = doc.splitTextToSize(value || "—", valWidth);
+    doc.text(lines, valX, y);
+    y += Math.max(lineH, lines.length * 3.6);
+    y += 0.5;
+  }
+
+  // Eingerückter Sub-Block (für Fassaden-Matrix etc.)
+  function subBlock(title, lines){
+    ensureSpace(8 + lines.length * 3.6);
+    const x = PDF_PAGE.marginX + 4;
+    // Terra-Strich links
+    setDrawColor(PDF_COLORS.terra);
+    doc.setLineWidth(0.8);
+    doc.line(PDF_PAGE.marginX + 2, y - 1,
+             PDF_PAGE.marginX + 2, y + 3 + lines.length * 3.6);
+    setFont("DMSans", "bold", 6.5);
+    setColor(PDF_COLORS.terra);
+    doc.text((title || "").toUpperCase(), x, y);
+    y += 3.2;
+    setFont("DMSans", "normal", 8);
+    setColor(PDF_COLORS.text);
+    for (const line of lines){
+      const wrapped = doc.splitTextToSize(line, PDF_PAGE.contentWidth - 6);
+      doc.text(wrapped, x, y);
+      y += wrapped.length * 3.6;
+    }
+    y += 2;
+  }
+
+  // Mehrzeilen-Notiz
+  function noteBlock(label, text){
+    if (!text || !text.trim()) return;
+    ensureSpace(8);
+    setFont("DMSans", "bold", 6.5);
+    setColor(PDF_COLORS.text3);
+    doc.text((label || "Notiz").toUpperCase(), PDF_PAGE.marginX, y);
+    y += 3;
+    setFont("DMSans", "normal", 8);
+    setColor(PDF_COLORS.text);
+    const lines = doc.splitTextToSize(text, PDF_PAGE.contentWidth);
+    ensureSpace(lines.length * 3.6);
+    doc.text(lines, PDF_PAGE.marginX, y);
+    y += lines.length * 3.6 + 2;
+  }
+
+  function spacer(mm){
+    y += mm;
+  }
+
+  return {
+    paintPageBackground, pageHeader, pageFooter, newPage, ensureSpace,
+    projectTitle, sectionHeader, kvRow, bauteilRow, subBlock, noteBlock, spacer,
+    setPageInfo(p, t){ pageNo = p; totalPages = t; },
+    getPageNo(){ return pageNo; },
+    setProjectName(n){ projectName.value = n; }
+  };
+}
+
+// ─── Mapping-Helper: State → Strings ────────────────────────────────
+function pdfPfadLabel(p){
+  return p.path === "sanierung" ? "Sanierung" : "Neubau";
+}
+function pdfVorhabenLabel(p){
+  if (p.vorhaben === "anbau")   return "Anbau / Aufstockung";
+  if (p.vorhaben === "neubau")  return "Neubau";
+  return "";
+}
+function pdfGebTypLabel(p){
+  if (p.gebTyp === "efh") return "EFH";
+  if (p.gebTyp === "mfh") return "MFH";
+  return "";
+}
+function pdfFoerderLabel(p){
+  if (p.foerder === "gewuenscht") return "gewünscht";
+  if (p.foerder === "nein")       return "nicht erforderlich";
+  return "—";
+}
+
+function pdfDachTypLabel(typKey){
+  const t = DACH_TYPEN.find(x => x.key === typKey);
+  return t ? t.label : (typKey || "—");
+}
+
+// Bauteil-Zusammenfassung pro Sektion 3
+function pdfBauteilSummary(p, bauteilId){
+  const cat = BAUTEIL_CATALOG[bauteilId];
+  const state = p.bauteile && p.bauteile[bauteilId];
+  if (!state) return "—";
+
+  if (cat.type === "simple"){
+    const parts = [];
+    if (state.aktiv) parts.push(cat.standardLabel + (state.daemmung_mm ? " · " + state.daemmung_mm + " mm" : ""));
+    if (state.notiz) parts.push(state.notiz);
+    return parts.length ? parts.join(" · ") : "—";
+  }
+
+  if (cat.type === "perGeschoss"){
+    const ges = getGeschosseFor(bauteilId, p);
+    const lines = [];
+    for (const g of ges){
+      const e = state.perGeschoss && state.perGeschoss[g.id];
+      if (!e || !e.variant) continue;
+      const v = findVariant(bauteilId, e.variant);
+      if (!v) continue;
+      const total = sumSchichten(e, v);
+      const mod = hasAnyModification(e, v) ? "*" : "";
+      lines.push(g.label + " " + v.title + (total ? " " + total + " mm" : "") + mod);
+    }
+    return lines.length ? lines.join(" · ") : "—";
+  }
+
+  if (cat.type === "multiVariant"){
+    const aktive = [];
+    for (const v of cat.variants){
+      const e = state.varianten && state.varianten[v.key];
+      if (!e || !e.aktiv) continue;
+      const total = sumSchichten(e, v);
+      const mod = hasAnyModification(e, v) ? "*" : "";
+      aktive.push(v.tag + (total ? " " + total + " mm" : "") + mod);
+    }
+    return aktive.length ? aktive.join(" · ") : "—";
+  }
+
+  if (cat.type === "fenster"){
+    const parts = [];
+    if (state.rahmen){
+      const r = cat.rahmenOptionen.find(o => o.key === state.rahmen);
+      if (r) parts.push("Rahmen " + r.label);
+    }
+    if (state.dachfenster) parts.push("Dachfenster");
+    const versch = [];
+    for (const v of cat.verschattungOptionen){
+      const val = state.verschattungen && state.verschattungen[v.key];
+      if (val && val.trim()) versch.push(v.label + " " + val);
+    }
+    if (versch.length) parts.push(versch.join(" · "));
+    return parts.length ? parts.join(" · ") : "—";
+  }
+
+  if (cat.type === "steildach"){
+    if (!state.aktiv) return "—";
+    const sch = cat.standard.schichten.map(s => {
+      const v = (state.schichten && state.schichten[s.key]) || s.def;
+      const vStr = (v === "" || v === undefined || v === null) ? "—" : v;
+      return s.name + " " + vStr;
+    }).join(" · ");
+    let result = sch;
+    if (state.innen){
+      const inn = cat.innenausfuehrung.find(x => x.key === state.innen);
+      if (inn){
+        const innSch = inn.schichten.map(s => {
+          const v = (state.innenSchichten && state.innenSchichten[s.key]) || s.def;
+          return s.name + " " + v;
+        }).join(" · ");
+        result += " · " + inn.title + (innSch ? " (" + innSch + ")" : "");
+      }
+    }
+    return result;
+  }
+
+  // single
+  if (!state.variant) return "—";
+  const v = findVariant(bauteilId, state.variant);
+  if (!v) return "—";
+  const total = sumSchichten(state, v);
+  const mod = hasAnyModification(state, v) ? "*" : "";
+  if (v.schichten.length){
+    const sch = v.schichten.map(s => {
+      const val = (state.schichten && state.schichten[s.key]) || s.def;
+      const valStr = (val === "" || val === undefined || val === null) ? "—" : val;
+      return s.name + " " + valStr;
+    }).join(" · ");
+    return v.title + " · " + sch + (total ? " · " + total + " mm" : "") + mod;
+  }
+  return v.title + mod;
+}
+
+// ─── PDF-Hauptfunktion ──────────────────────────────────────────────
+async function exportProjectAsPdf(projectId){
+  const p = findProject(projectId);
+  if (!p){ showToast("Projekt nicht gefunden", "warn"); return; }
+
+  // jsPDF + Fonts vorbereiten
+  if (typeof window.jspdf === "undefined" && typeof window.jsPDF === "undefined"){
+    showToast("PDF-Bibliothek nicht geladen — bitte neu laden", "warn");
+    return;
+  }
+  const jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+
+  showToast("PDF wird erzeugt …");
+  let fonts;
+  try { fonts = await loadPdfFonts(); }
+  catch(e){
+    showToast("Schriftarten konnten nicht geladen werden", "warn");
+    return;
+  }
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  // Schriften registrieren
+  for (const path in fonts){
+    const f = fonts[path];
+    const fileName = path.split("/").pop();
+    doc.addFileToVFS(fileName, f.b64);
+    doc.addFont(fileName, f.name, f.style);
+  }
+
+  const b = makePdfBuilder(doc);
+  b.setProjectName(p.name);
+  b.paintPageBackground();
+  b.pageHeader();
+
+  // Projekttitel
+  b.projectTitle(p.name, pdfPfadLabel(p), pdfGebTypLabel(p));
+
+  // ── Sektion 1 Objektdaten ──
+  b.sectionHeader("01", "Objektdaten");
+  if (p.path === "neubau"){
+    b.kvRow("Vorhaben",     pdfVorhabenLabel(p));
+  } else {
+    b.kvRow("Baujahr",      p.baujahr);
+    b.kvRow("Energieausweis", p.energieausweisVorhanden ? "vorhanden" : "—");
+    if (p.bisherigeMassnahmen && p.bisherigeMassnahmen.length){
+      for (const m of p.bisherigeMassnahmen){
+        if (!m.jahr && !m.massnahme) continue;
+        b.kvRow(m.jahr || "—", m.massnahme || "—");
+      }
+    }
+  }
+  b.kvRow("Gebäudetyp",   pdfGebTypLabel(p));
+  b.kvRow("Adresse",      p.adresse);
+  b.kvRow("Fördergelder", pdfFoerderLabel(p));
+  b.spacer(2);
+
+  // ── Sektion 2 Maße ──
+  b.sectionHeader("02", "Maße");
+  b.kvRow("Grundrisse bemaßt", p.grundrisseBemasst ? "ja" : "—");
+  // Lichte Höhen
+  if (p.geschosse && p.geschosse.length){
+    const hLines = p.geschosse.map(g => {
+      const key = g.key || "—";
+      const val = g.value ? g.value + " m" : "—";
+      return key + " · " + val;
+    });
+    b.subBlock("Lichte Raumhöhen", [hLines.join("   ")]);
+  }
+  if (p.daecher && p.daecher.length){
+    const dLines = p.daecher.map(d => {
+      const typ = pdfDachTypLabel(d.typ);
+      const ks  = d.kniestock  ? d.kniestock  + " cm" : "—";
+      const ne  = d.neigung    ? d.neigung    + "°"   : "—";
+      const ue  = d.ueberstand ? d.ueberstand + " cm" : "—";
+      return typ + " · Kniestock " + ks + " · Neigung " + ne + " · Überstand " + ue;
+    });
+    b.subBlock("Dächer", dLines);
+  }
+  b.spacer(2);
+
+  // ── Sektion 3 Bauteile ──
+  b.sectionHeader("03", "Bauteile");
+  let anyModified = false;
+  for (const id of BAUTEIL_ORDER_3A){
+    const txt = pdfBauteilSummary(p, id);
+    if (txt.indexOf("*") !== -1) anyModified = true;
+    const cat = BAUTEIL_CATALOG[id];
+    b.bauteilRow(id, cat.title, txt);
+  }
+  // Fassaden-Matrix bei Wänden Holz (nur wenn vorhanden)
+  if (p.bauteile && p.bauteile["3.6"]){
+    const cat36 = BAUTEIL_CATALOG["3.6"];
+    const state36 = p.bauteile["3.6"];
+    for (const v of cat36.variants){
+      if (!v.hasFassade) continue;
+      const e = state36.varianten && state36.varianten[v.key];
+      if (!e || !e.aktiv || !e.fassadePerGeschoss) continue;
+      const fasLines = [];
+      for (const g of (p.geschosse || [])){
+        if (!g.key || !g.key.trim() || !g.value || !g.value.trim()) continue;
+        const fas = e.fassadePerGeschoss[g.key];
+        if (!fas) continue;
+        const fasEntry = cat36.fassaden.find(x => x.key === fas);
+        if (fasEntry){
+          fasLines.push(g.key + " " + fasEntry.label + " (" + fasEntry.key + ")");
+        }
+      }
+      if (fasLines.length){
+        b.subBlock("Fassaden Wände Holz · " + v.tag, [fasLines.join("   ")]);
+      }
+    }
+  }
+  if (anyModified){
+    b.ensureSpace(4);
+    doc.setFont("DMSans", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(...PDF_COLORS.terra);
+    doc.text("* Standardstärke angepasst", PDF_PAGE.marginX, 297 - PDF_PAGE.marginBottom - 2 - 4);
+    // bewusst nicht in y eintragen, weil das ohnehin am Seitenrand sitzt
+  }
+  b.spacer(2);
+
+  // ── Sektion 4 Heizung & Warmwasser ──
+  b.sectionHeader("04", "Heizung & Warmwasser");
+  const h = p.heizung || {};
+  if (h.techniken){
+    const techLines = [];
+    for (const t of HEIZUNG_TECHNIK){
+      const e = h.techniken[t.key];
+      if (!e || !e.aktiv) continue;
+      const parts = [t.title];
+      if (t.subTypes && e.subType){
+        const st = t.subTypes.find(x => x.key === e.subType);
+        if (st) parts[0] = t.title + " (" + st.label + ")";
+      }
+      if (e.hersteller) parts.push("Hersteller: " + e.hersteller);
+      if (e.modell)     parts.push("Modell: " + e.modell);
+      if (t.extras && e.extras){
+        for (const ex of t.extras){
+          if (e.extras[ex.key]){
+            parts.push(ex.label + " " + e.extras[ex.key] + " " + ex.unit);
+          }
+        }
+      }
+      if (e.raeume) parts.push("Räume: " + e.raeume);
+      techLines.push(parts.join(" · "));
+    }
+    if (techLines.length){
+      for (const line of techLines){
+        b.kvRow("Heiztechnik", line);
+      }
+    } else {
+      b.kvRow("Heiztechnik", "—");
+    }
+  } else {
+    b.kvRow("Heiztechnik", "—");
+  }
+  b.kvRow("Pufferspeicher", h.pufferspeicherLiter ? h.pufferspeicherLiter + " Liter" : "—");
+
+  const ww = h.warmwasser || {};
+  const wwParts = [];
+  if (ww.typen){
+    if (ww.typen.zentral)         wwParts.push("zentrale Heizungsanlage");
+    if (ww.typen.dezentral)       wwParts.push("dezentral");
+    if (ww.typen.brauchwasserWp)  wwParts.push("Brauchwasser-Wärmepumpe");
+  }
+  b.kvRow("Warmwasser",  wwParts.length ? wwParts.join(" + ") : "—");
+  b.kvRow("WW-Speicher", ww.speicherLiter ? ww.speicherLiter + " Liter" : "—");
+  if (h.notiz) b.noteBlock("Notiz Anlage", h.notiz);
+  b.spacer(2);
+
+  // ── Sektion 5 Verteilsystem ──
+  b.sectionHeader("05", "Verteilsystem");
+  const vr = p.verteil || {};
+  const vrParts = [];
+  for (const o of VERTEIL_OPTIONEN){
+    if (vr.aktiv && vr.aktiv[o.key]) vrParts.push(o.label);
+  }
+  b.kvRow("Verteilsystem", vrParts.length ? vrParts.join(", ") : "—");
+  if (vr.notiz) b.noteBlock("Notiz", vr.notiz);
+  b.spacer(2);
+
+  // ── Sektion 6 Lüftung ──
+  b.sectionHeader("06", "Lüftung");
+  const lu = p.lueftung || {};
+  let luLabel = "—";
+  if (lu.typ){
+    const o = LUEFTUNG_OPTIONEN.find(x => x.key === lu.typ);
+    if (o) luLabel = o.label;
+  }
+  b.kvRow("Lüftungsart", luLabel);
+  if (lu.notiz) b.noteBlock("Notiz", lu.notiz);
+  b.spacer(2);
+
+  // ── Sektion 7 PV ──
+  b.sectionHeader("07", "PV-Anlage");
+  const pv = p.pv || {};
+  let pvStatus = "—";
+  if (pv.status){
+    const o = PV_STATUS.find(x => x.key === pv.status);
+    if (o) pvStatus = o.label;
+  }
+  b.kvRow("Status",      pvStatus);
+  b.kvRow("Größe",       pv.groesse || "—");
+  b.kvRow("Ausrichtung", pv.ausrichtung || "—");
+  if (pv.aufdach && pv.aufdach.aktiv){
+    b.kvRow("Aufdach", (pv.aufdach.hersteller || "—") + " · " + (pv.aufdach.modul || "—"));
+  }
+  if (pv.indach && pv.indach.aktiv){
+    b.kvRow("Indach",  (pv.indach.hersteller || "—") + " · " + (pv.indach.modul || "—"));
+  }
+  const aufdachAktiv = pv.aufdach && pv.aufdach.aktiv;
+  const indachAktiv  = pv.indach  && pv.indach.aktiv;
+  if (!aufdachAktiv && !indachAktiv){
+    b.kvRow("Produkt", "—");
+  }
+  if (pv.notiz) b.noteBlock("Notiz", pv.notiz);
+  b.spacer(2);
+
+  // ── Sektion 8 Thermische Hülle ──
+  b.sectionHeader("08", "Thermische Hülle");
+  const hu = p.huelle || {};
+  let huLabel = "—";
+  if (hu.umfang){
+    const o = HUELLE_OPTIONEN.find(x => x.key === hu.umfang);
+    if (o) huLabel = o.label;
+  }
+  b.kvRow("Umfang Hülle",    huLabel);
+  b.kvRow("Kritische Räume", hu.kritischeRaeume);
+  if (hu.notiz) b.noteBlock("Notiz", hu.notiz);
+
+  // ── Footer auf jeder Seite mit korrekter Gesamtseiten-Zahl ──
+  const finalPageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= finalPageCount; i++){
+    doc.setPage(i);
+    // Footer-Bereich überzeichnen mit BG und neu schreiben
+    doc.setFillColor(...PDF_COLORS.bg);
+    doc.rect(0, PDF_PAGE.height - PDF_PAGE.marginBottom - 2,
+             PDF_PAGE.width, PDF_PAGE.marginBottom + 2, "F");
+    doc.setDrawColor(...PDF_COLORS.ruleSoft);
+    doc.setLineWidth(0.2);
+    const bottom = PDF_PAGE.height - PDF_PAGE.marginBottom + 8;
+    doc.line(PDF_PAGE.marginX, bottom - 3,
+             PDF_PAGE.width - PDF_PAGE.marginX, bottom - 3);
+    doc.setFont("DMSans", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(...PDF_COLORS.text3);
+    doc.text(p.name + " · Projektkartei",
+             PDF_PAGE.marginX, bottom);
+    doc.text("Seite " + i + " von " + finalPageCount,
+             PDF_PAGE.width - PDF_PAGE.marginX, bottom, { align: "right" });
+  }
+
+  // Dateinamen aus Projektname (sanitisiert)
+  const safeName = (p.name || "Projekt")
+    .replace(/[^\wÄÖÜäöüß \-]/g, "")
+    .replace(/\s+/g, "_")
+    .substring(0, 60);
+  const ts = new Date().toISOString().slice(0, 10);
+  doc.save("laczy-" + safeName + "-" + ts + ".pdf");
+  showToast("PDF erstellt", "sage");
+}
+
+// ─── Wizard-Button verdrahten ──────────────────────────────────────
+function setupPdfExportTriggers(){
+  // Wizard "Daten ausgeben" — überschreibt den Default-Handler in wizardNext
+  const origWizardNext = wizardNext;
+  wizardNext = function(){
+    if (currentSection === PROJECT_SECTIONS.length){
+      exportProjectAsPdf(activeProjectId);
+      return;
+    }
+    origWizardNext();
+  };
+}
+
+// Da wizardNext schon registriert wurde mit dem alten Handler, müssen wir
+// die Event-Listener-Bindung neu machen. Wir hooken stattdessen direkt:
+(function patchWizardNext(){
+  // Remove old listener — wir können den nicht direkt entfernen, also stattdessen
+  // den Handler im Aufruf abfangen: an wizardNextBtn einen neuen Listener anhängen,
+  // der vor dem alten feuert.
+  if (typeof wizardNextBtn !== "undefined" && wizardNextBtn){
+    wizardNextBtn.addEventListener("click", (e) => {
+      if (currentSection === PROJECT_SECTIONS.length){
+        e.stopImmediatePropagation();
+        exportProjectAsPdf(activeProjectId);
+      }
+    }, true);  // capture phase, läuft vor dem bestehenden Bubbling-Handler
+  }
+})();
