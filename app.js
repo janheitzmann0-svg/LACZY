@@ -4,7 +4,7 @@
 // Wenn der Browser eine alte index.html mit einer neuen app.js kombiniert
 // (oder umgekehrt), erkennen wir das hier und erzwingen einen Reload mit
 // Cache-Umgehung. Verhindert "geht plötzlich nichts mehr"-Symptome.
-const LACZY_JS_VERSION = "laczy-v4.5.0";
+const LACZY_JS_VERSION = "laczy-v4.5.1";
 (function versionWatchdog(){
   try {
     // Notfall-Reset via URL-Parameter: ?reset=1 leert Cache und lädt neu
@@ -3992,7 +3992,7 @@ const BAUTEIL_CATALOG = {
           { key: "gf1",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true },
           { key: "instEbene", name: "Inst. Ebene · ohne Dämmung",        def: 60,   editable: true },
           { key: "osb",       name: "OSB",                               def: 15,   editable: true },
-          { key: "staender",  name: "Holzständer / Holzweichfaser",      def: 240,  editable: false },
+          { key: "staender",  name: "Holzständer / Holzweichfaser",      def: 240,  editable: true },
           { key: "hwf",       name: "Holzfaser",                         def: 60,   editable: true }
         ]
       },
@@ -4005,7 +4005,7 @@ const BAUTEIL_CATALOG = {
           { key: "gf1",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true },
           { key: "instEbene", name: "Inst. Ebene / Mineralwolle",        def: 60,   editable: true },
           { key: "vapor",     name: "Vapor Fermacell",                   def: 15,   editable: true },
-          { key: "staender",  name: "Holzständer / Holzweichfaser",      def: 240,  editable: false },
+          { key: "staender",  name: "Holzständer / Holzweichfaser",      def: 240,  editable: true },
           { key: "gf2",       name: "Gipsfaser-Platte",                  def: 18,   editable: true },
           { key: "hwf",       name: "Holzfaser (bei Putzfassade)",       def: 60,   editable: true }
         ]
@@ -4017,7 +4017,7 @@ const BAUTEIL_CATALOG = {
         schichten: [
           { key: "gf1",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true },
           { key: "gf2",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true },
-          { key: "staender", name: "Holzständer / Holzfaser",            def: 160,  editable: false },
+          { key: "staender", name: "Holzständer / Holzfaser",            def: 160,  editable: true },
           { key: "gf3",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true },
           { key: "gf4",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true },
           { key: "luft",     name: "Luft",                               def: 10,   editable: true },
@@ -4032,7 +4032,7 @@ const BAUTEIL_CATALOG = {
         schichten: [
           { key: "gf1",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true },
           { key: "gf2",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true },
-          { key: "staender",  name: "Holzständer / Holzfaser",           def: 160,  editable: false },
+          { key: "staender",  name: "Holzständer / Holzfaser",           def: 160,  editable: true },
           { key: "gf3",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true },
           { key: "gf4",       name: "Gipsfaser-Platte",                  def: 12.5, editable: true },
           { key: "vss",       name: "Vorsatzschale freistehend (Metallständer / Mineralwolle)", def: 50, editable: true },
@@ -4045,7 +4045,7 @@ const BAUTEIL_CATALOG = {
         title: "Innenwand",
         schichten: [
           { key: "gf1",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true },
-          { key: "staender", name: "Holzständer / Holzweichfaser",       def: 120,  editable: false },
+          { key: "staender", name: "Holzständer / Holzweichfaser",       def: 120,  editable: true },
           { key: "gf2",      name: "Gipsfaser-Platte",                   def: 12.5, editable: true }
         ]
       },
@@ -4055,7 +4055,7 @@ const BAUTEIL_CATALOG = {
         title: "Garagenwand AW",
         schichten: [
           { key: "osb",      name: "OSB",                                def: 15,   editable: true },
-          { key: "staender", name: "Holzständer / Holzweichfaser",       def: 160,  editable: false },
+          { key: "staender", name: "Holzständer / Holzweichfaser",       def: 160,  editable: true },
           { key: "hwf",      name: "Holzfaser",                          def: 60,   editable: true }
         ]
       }

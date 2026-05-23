@@ -2,7 +2,7 @@
 // Strategie: Cache-First für die App-Shell. Voll offline-fähig nach erstem Laden.
 // Cross-Origin-Anfragen werden auf eine explizite Whitelist beschränkt.
 
-const VERSION = 'laczy-v4.5.0';
+const VERSION = 'laczy-v4.5.1';
 const CACHE = `laczy-cache-${VERSION}`;
 
 // Alle für den Offline-Betrieb benötigten Dateien (Same-Origin).
