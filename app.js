@@ -4,7 +4,7 @@
 // Wenn der Browser eine alte index.html mit einer neuen app.js kombiniert
 // (oder umgekehrt), erkennen wir das hier und erzwingen einen Reload mit
 // Cache-Umgehung. Verhindert "geht plötzlich nichts mehr"-Symptome.
-const LACZY_JS_VERSION = "laczy-v4.5.1";
+const LACZY_JS_VERSION = "laczy-v4.6.0";
 (function versionWatchdog(){
   try {
     // Notfall-Reset via URL-Parameter: ?reset=1 leert Cache und lädt neu
@@ -2922,6 +2922,13 @@ function sanitizeProject(raw){
   // Tiefe Sanitisierung der Bauteile (Sektion 3)
   if (typeof sanitizeBauteile === "function") sanitizeBauteile(p);
 
+  // Tiefe Sanitisierung der Anlagensektionen (4-8)
+  if (typeof sanitizeSection4 === "function") p.heizung  = sanitizeSection4(p.heizung);
+  if (typeof sanitizeSection5 === "function") p.verteil  = sanitizeSection5(p.verteil);
+  if (typeof sanitizeSection6 === "function") p.lueftung = sanitizeSection6(p.lueftung);
+  if (typeof sanitizeSection7 === "function") p.pv       = sanitizeSection7(p.pv);
+  if (typeof sanitizeSection8 === "function") p.huelle   = sanitizeSection8(p.huelle);
+
   return p;
 }
 
@@ -2983,6 +2990,16 @@ function sectionHasData(p, sectionKey){
       return false;
     case "bauteile":
       return sectionHasDataBauteile(p);
+    case "heizung":
+      return sectionHasDataHeizung(p);
+    case "verteil":
+      return sectionHasDataVerteil(p);
+    case "lueftung":
+      return sectionHasDataLueftung(p);
+    case "pv":
+      return sectionHasDataPv(p);
+    case "huelle":
+      return sectionHasDataHuelle(p);
     default:
       return false;  // Sektionen 3-8 noch nicht implementiert
   }
@@ -3291,6 +3308,11 @@ function renderSection(n){
     case 1: renderSection1(p); break;
     case 2: renderSection2(p); break;
     case 3: renderSection3(p); break;
+    case 4: renderSection4(p); break;
+    case 5: renderSection5(p); break;
+    case 6: renderSection6(p); break;
+    case 7: renderSection7(p); break;
+    case 8: renderSection8(p); break;
     default: renderSectionPlaceholder(n); break;
   }
 }
@@ -5548,5 +5570,894 @@ function sanitizeSchichten(raw){
       out[k] = String(v);
     }
   }
+  return out;
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SEKTIONEN 4-8 — Anlagentechnik & Hülle
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─── Kataloge ──────────────────────────────────────────────────────
+
+const HEIZUNG_TECHNIK = [
+  {
+    key: "waermepumpe",
+    title: "Wärmepumpe",
+    subTypes: [
+      { key: "luftWasser",  label: "Luft-Wasser" },
+      { key: "soleWasser",  label: "Sole-Wasser" },
+      { key: "luftLuft",    label: "Luft-Luft" },
+      { key: "wasserWasser",label: "Wasser-Wasser" }
+    ]
+  },
+  { key: "pellet",       title: "Pelletkessel" },
+  { key: "scheitholz",   title: "Scheitholzkessel" },
+  { key: "hackschnitzel",title: "Holzhackschnitzelkessel" },
+  {
+    key: "waermenetz",
+    title: "Wärmenetz",
+    note: "Annahme für Eingabe Hottgenroth · Wert bauvorhabenbezogen bei Matthias Kilian anfragen",
+    extras: [
+      { key: "beheizteFlaeche", label: "Beheizte Fläche",       unit: "m²" },
+      { key: "leistungWmqm",    label: "Leistung",              unit: "W/m²", hint: "EFH max. 5 Pers. z.B. 32 W/m²" },
+      { key: "leistungKw",      label: "Gesamtleistung",        unit: "kW" }
+    ]
+  },
+  {
+    key: "elektroHk",
+    title: "Elektrische Heizkörper",
+    raeumePresets: ["Bad", "WC"]   // freie Raum-Liste, vorgeschlagen
+  }
+];
+
+const VERTEIL_OPTIONEN = [
+  { key: "fbh",       label: "Fußbodenheizung" },
+  { key: "heizkoerper", label: "Heizkörper" },
+  { key: "luft",      label: "Luft" }
+];
+
+const LUEFTUNG_OPTIONEN = [
+  { key: "zentralWrg",   label: "zentral (mit WRG)" },
+  { key: "dezentralWrg", label: "dezentral (mit WRG)" },
+  { key: "fensterfalz",  label: "Fensterfalzlüfter" },
+  { key: "manuell",      label: "manuell (Fensterlüftung)" }
+];
+
+const PV_STATUS = [
+  { key: "gewuenscht",  label: "gewünscht" },
+  { key: "vorgegeben",  label: "gesetzlich vorgeschrieben" }
+];
+
+const PV_DEFAULT_PRODUKTE = {
+  aufdach: {
+    hersteller: "Trina Solar",
+    modul:      "102 × TSM-440-NEG9RC.27 VERTEX"
+  },
+  indach: {
+    hersteller: "CS-Wismar",
+    modul:      "Integration Glas-Glas 330M60 full Black und SOLRIF"
+  }
+};
+
+const HUELLE_OPTIONEN = [
+  { key: "ganz",         label: "gesamtes Gebäude" },
+  { key: "ohneKeller",   label: "ohne Keller" },
+  { key: "mitKtr",       label: "mit Kellertreppenraum" },
+  { key: "ohneTreppe",   label: "ohne Treppenhaus" }
+];
+
+// ─── State-Helpers ─────────────────────────────────────────────────
+
+function ensureHeizungState(p){
+  if (!p.heizung || typeof p.heizung !== "object" || Array.isArray(p.heizung)) {
+    p.heizung = {};
+  }
+  if (!p.heizung.techniken) p.heizung.techniken = {};
+  if (!p.heizung.warmwasser) p.heizung.warmwasser = { typen: {}, speicherLiter: "" };
+  if (typeof p.heizung.pufferspeicherLiter !== "string") p.heizung.pufferspeicherLiter = "";
+  if (typeof p.heizung.notiz !== "string") p.heizung.notiz = "";
+  return p.heizung;
+}
+
+function ensureVerteilState(p){
+  if (!p.verteil || typeof p.verteil !== "object" || Array.isArray(p.verteil)) {
+    p.verteil = {};
+  }
+  if (!p.verteil.aktiv) p.verteil.aktiv = {};
+  if (typeof p.verteil.notiz !== "string") p.verteil.notiz = "";
+  return p.verteil;
+}
+
+function ensureLueftungState(p){
+  if (!p.lueftung || typeof p.lueftung !== "object" || Array.isArray(p.lueftung)) {
+    p.lueftung = {};
+  }
+  if (!p.lueftung.typ) p.lueftung.typ = null;
+  if (typeof p.lueftung.notiz !== "string") p.lueftung.notiz = "";
+  return p.lueftung;
+}
+
+function ensurePvState(p){
+  if (!p.pv || typeof p.pv !== "object" || Array.isArray(p.pv)) {
+    p.pv = {};
+  }
+  if (!p.pv.status) p.pv.status = null;
+  if (typeof p.pv.groesse !== "string") p.pv.groesse = "";
+  if (typeof p.pv.ausrichtung !== "string") p.pv.ausrichtung = "";
+  if (!p.pv.aufdach) p.pv.aufdach = { aktiv: false, hersteller: "", modul: "" };
+  if (!p.pv.indach)  p.pv.indach  = { aktiv: false, hersteller: "", modul: "" };
+  if (typeof p.pv.notiz !== "string") p.pv.notiz = "";
+  return p.pv;
+}
+
+function ensureHuelleState(p){
+  if (!p.huelle || typeof p.huelle !== "object" || Array.isArray(p.huelle)) {
+    p.huelle = {};
+  }
+  if (!p.huelle.umfang) p.huelle.umfang = null;
+  if (typeof p.huelle.kritischeRaeume !== "string") p.huelle.kritischeRaeume = "";
+  if (typeof p.huelle.notiz !== "string") p.huelle.notiz = "";
+  return p.huelle;
+}
+
+// ─── sectionHasData ────────────────────────────────────────────────
+
+function sectionHasDataHeizung(p){
+  const s = p.heizung;
+  if (!s || typeof s !== "object") return false;
+  if (s.techniken){
+    for (const k in s.techniken){
+      if (s.techniken[k] && s.techniken[k].aktiv) return true;
+    }
+  }
+  if (s.pufferspeicherLiter && s.pufferspeicherLiter.trim()) return true;
+  if (s.warmwasser && s.warmwasser.typen){
+    for (const k in s.warmwasser.typen){
+      if (s.warmwasser.typen[k]) return true;
+    }
+    if (s.warmwasser.speicherLiter && s.warmwasser.speicherLiter.trim()) return true;
+  }
+  if (s.notiz && s.notiz.trim()) return true;
+  return false;
+}
+
+function sectionHasDataVerteil(p){
+  const s = p.verteil;
+  if (!s) return false;
+  if (s.aktiv){
+    for (const k in s.aktiv){ if (s.aktiv[k]) return true; }
+  }
+  if (s.notiz && s.notiz.trim()) return true;
+  return false;
+}
+
+function sectionHasDataLueftung(p){
+  const s = p.lueftung;
+  if (!s) return false;
+  if (s.typ) return true;
+  if (s.notiz && s.notiz.trim()) return true;
+  return false;
+}
+
+function sectionHasDataPv(p){
+  const s = p.pv;
+  if (!s) return false;
+  if (s.status) return true;
+  if ((s.groesse && s.groesse.trim()) || (s.ausrichtung && s.ausrichtung.trim())) return true;
+  if (s.aufdach && s.aufdach.aktiv) return true;
+  if (s.indach && s.indach.aktiv) return true;
+  if (s.notiz && s.notiz.trim()) return true;
+  return false;
+}
+
+function sectionHasDataHuelle(p){
+  const s = p.huelle;
+  if (!s) return false;
+  if (s.umfang) return true;
+  if (s.kritischeRaeume && s.kritischeRaeume.trim()) return true;
+  if (s.notiz && s.notiz.trim()) return true;
+  return false;
+}
+
+// ─── DOM-Helper für die Anlagensektionen ──────────────────────────
+
+function makeFieldRow(label, hint, value, placeholder, onInput, mono){
+  const card = document.createElement("div");
+  card.className = "step-card";
+  const lab = document.createElement("div");
+  lab.className = "step-card-label";
+  lab.textContent = label;
+  if (hint){
+    const h = document.createElement("span");
+    h.className = "step-card-hint";
+    h.textContent = "· " + hint;
+    lab.append(" ", h);
+  }
+  card.append(lab);
+  const inp = document.createElement("input");
+  inp.type = "text";
+  inp.className = "wiz-input" + (mono ? " mono" : "");
+  inp.maxLength = MAX_PROJECT_TEXT_LEN;
+  if (placeholder) inp.placeholder = placeholder;
+  inp.value = value || "";
+  inp.addEventListener("input", () => onInput(inp.value));
+  card.append(inp);
+  return card;
+}
+
+function makePillToggleCard(label, hint, items, isActiveFn, onToggle){
+  const card = document.createElement("div");
+  card.className = "step-card";
+  const lab = document.createElement("div");
+  lab.className = "step-card-label";
+  lab.textContent = label;
+  if (hint){
+    const h = document.createElement("span");
+    h.className = "step-card-hint";
+    h.textContent = "· " + hint;
+    lab.append(" ", h);
+  }
+  card.append(lab);
+
+  const grid = document.createElement("div");
+  grid.className = "option-pills";
+  for (const it of items){
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "option-pill";
+    if (isActiveFn(it.key)) btn.classList.add("active");
+    btn.textContent = it.label;
+    btn.addEventListener("click", () => onToggle(it.key));
+    grid.append(btn);
+  }
+  card.append(grid);
+  return card;
+}
+
+function makeCheckboxCard(label, checked, onChange){
+  const card = document.createElement("div");
+  card.className = "step-card";
+  card.style.padding = "0";
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "checkbox-row";
+  row.style.background = "transparent";
+  row.style.border = "none";
+  row.style.padding = "12px 14px";
+  row.style.width = "100%";
+  if (checked) row.classList.add("checked");
+  const box = document.createElement("span");
+  box.className = "box";
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const poly = document.createElementNS(svgNS, "polyline");
+  poly.setAttribute("points", "5 12 10 17 19 7");
+  svg.append(poly);
+  box.append(svg);
+  const labEl = document.createElement("span");
+  labEl.className = "label";
+  labEl.textContent = label;
+  row.append(box, labEl);
+  row.addEventListener("click", () => {
+    const newVal = !row.classList.contains("checked");
+    onChange(newVal);
+  });
+  card.append(row);
+  return card;
+}
+
+// ─── Sektion 4: Heizung & Warmwasser ────────────────────────────────
+function renderSection4(p){
+  clearChildren(wizardContainer);
+  const state = ensureHeizungState(p);
+
+  // ── Heizungstechnik ──
+  const grpTitle = document.createElement("div");
+  grpTitle.style.fontFamily = "var(--font-display)";
+  grpTitle.style.fontSize = "16px";
+  grpTitle.style.fontWeight = "500";
+  grpTitle.style.color = "var(--text)";
+  grpTitle.style.marginBottom = "10px";
+  grpTitle.textContent = "Heizungstechnik";
+  wizardContainer.append(grpTitle);
+
+  const grpHint = document.createElement("div");
+  grpHint.style.fontSize = "11px";
+  grpHint.style.color = "var(--text-2)";
+  grpHint.style.marginBottom = "12px";
+  grpHint.textContent = "Mehrere Techniken kombinierbar (z.B. Wärmepumpe + elektr. Heizkörper im Bad)";
+  wizardContainer.append(grpHint);
+
+  for (const t of HEIZUNG_TECHNIK){
+    const card = document.createElement("div");
+    card.className = "step-card";
+
+    const tEntry = state.techniken[t.key] || { aktiv: false };
+    const isAktiv = !!tEntry.aktiv;
+
+    // Aktivierungs-Zeile
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "checkbox-row";
+    row.style.margin = "-16px";
+    row.style.padding = "14px 16px";
+    row.style.borderRadius = "12px";
+    if (isAktiv) row.classList.add("checked");
+    const box = document.createElement("span");
+    box.className = "box";
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const poly = document.createElementNS(svgNS, "polyline");
+    poly.setAttribute("points", "5 12 10 17 19 7");
+    svg.append(poly);
+    box.append(svg);
+    const lab = document.createElement("span");
+    lab.className = "label";
+    lab.textContent = t.title;
+    row.append(box, lab);
+    row.addEventListener("click", () => {
+      if (!state.techniken[t.key]) state.techniken[t.key] = { aktiv: true };
+      else state.techniken[t.key].aktiv = !state.techniken[t.key].aktiv;
+      touchActive();
+      renderSection4(p);
+      renderWizardChrome();
+    });
+    card.append(row);
+
+    // Detail-Felder nur bei aktiv
+    if (isAktiv){
+      const details = document.createElement("div");
+      details.style.marginTop = "12px";
+      details.style.paddingTop = "12px";
+      details.style.borderTop = "1px solid var(--border)";
+
+      // Sub-Typen bei Wärmepumpe — Einzelauswahl
+      if (t.subTypes){
+        const subLab = document.createElement("div");
+        subLab.style.fontSize = "11px";
+        subLab.style.color = "var(--text-2)";
+        subLab.style.marginBottom = "6px";
+        subLab.textContent = "Bauart";
+        details.append(subLab);
+        const subGrid = document.createElement("div");
+        subGrid.className = "option-pills";
+        subGrid.style.marginBottom = "10px";
+        for (const st of t.subTypes){
+          const pill = document.createElement("button");
+          pill.type = "button";
+          pill.className = "option-pill";
+          if (tEntry.subType === st.key) pill.classList.add("active");
+          pill.textContent = st.label;
+          pill.addEventListener("click", () => {
+            tEntry.subType = (tEntry.subType === st.key) ? null : st.key;
+            touchActive();
+            renderSection4(p);
+            renderWizardChrome();
+          });
+          subGrid.append(pill);
+        }
+        details.append(subGrid);
+      }
+
+      // Extras (Wärmenetz: Fläche/Leistung)
+      if (t.extras){
+        for (const ex of t.extras){
+          const exLab = document.createElement("div");
+          exLab.style.fontSize = "11px";
+          exLab.style.color = "var(--text-2)";
+          exLab.style.marginTop = "8px";
+          exLab.style.marginBottom = "4px";
+          exLab.append(document.createTextNode(ex.label));
+          if (ex.hint){
+            const hintSpan = document.createElement("span");
+            hintSpan.style.color = "var(--text-3)";
+            hintSpan.style.marginLeft = "4px";
+            hintSpan.textContent = "· " + ex.hint;
+            exLab.append(hintSpan);
+          }
+          details.append(exLab);
+          const flex = document.createElement("div");
+          flex.style.display = "grid";
+          flex.style.gridTemplateColumns = "1fr 36px";
+          flex.style.gap = "8px";
+          flex.style.alignItems = "center";
+          const inp = document.createElement("input");
+          inp.type = "text";
+          inp.className = "wiz-input mono";
+          inp.maxLength = 12;
+          inp.value = (tEntry.extras && tEntry.extras[ex.key]) || "";
+          inp.addEventListener("input", () => {
+            if (!tEntry.extras) tEntry.extras = {};
+            tEntry.extras[ex.key] = sanitizeStr(inp.value, 12);
+            touchActive();
+          });
+          const unit = document.createElement("span");
+          unit.style.fontFamily = "var(--font-mono)";
+          unit.style.fontSize = "11px";
+          unit.style.color = "var(--text-3)";
+          unit.textContent = ex.unit;
+          flex.append(inp, unit);
+          details.append(flex);
+        }
+      }
+
+      // Hersteller / Modell (frei)
+      const hmGrid = document.createElement("div");
+      hmGrid.style.marginTop = "10px";
+      hmGrid.style.display = "grid";
+      hmGrid.style.gap = "8px";
+
+      for (const k of ["hersteller", "modell"]){
+        const label = (k === "hersteller") ? "Hersteller" : "Modell";
+        const wrap = document.createElement("div");
+        const wLab = document.createElement("div");
+        wLab.style.fontSize = "11px";
+        wLab.style.color = "var(--text-2)";
+        wLab.style.marginBottom = "4px";
+        wLab.textContent = label;
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "wiz-input";
+        inp.maxLength = MAX_PROJECT_TEXT_LEN;
+        inp.value = tEntry[k] || "";
+        inp.addEventListener("input", () => {
+          tEntry[k] = sanitizeStr(inp.value, MAX_PROJECT_TEXT_LEN);
+          touchActive();
+        });
+        wrap.append(wLab, inp);
+        hmGrid.append(wrap);
+      }
+      details.append(hmGrid);
+
+      // Räume (für elektrische Heizkörper)
+      if (t.raeumePresets){
+        const rLab = document.createElement("div");
+        rLab.style.fontSize = "11px";
+        rLab.style.color = "var(--text-2)";
+        rLab.style.marginTop = "10px";
+        rLab.style.marginBottom = "4px";
+        rLab.append(document.createTextNode("Räume "));
+        const hint = document.createElement("span");
+        hint.style.color = "var(--text-3)";
+        hint.textContent = "· z.B. " + t.raeumePresets.join(", ");
+        rLab.append(hint);
+        details.append(rLab);
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "wiz-input";
+        inp.maxLength = MAX_PROJECT_TEXT_LEN;
+        inp.placeholder = t.raeumePresets.join(", ");
+        inp.value = tEntry.raeume || "";
+        inp.addEventListener("input", () => {
+          tEntry.raeume = sanitizeStr(inp.value, MAX_PROJECT_TEXT_LEN);
+          touchActive();
+        });
+        details.append(inp);
+      }
+
+      // Hinweis-Text
+      if (t.note){
+        const noteEl = document.createElement("div");
+        noteEl.style.fontSize = "11px";
+        noteEl.style.color = "var(--text-2)";
+        noteEl.style.marginTop = "10px";
+        noteEl.style.fontStyle = "italic";
+        noteEl.textContent = t.note;
+        details.append(noteEl);
+      }
+
+      card.append(details);
+
+      // State zurückschreiben (falls neu angelegt)
+      state.techniken[t.key] = tEntry;
+    }
+
+    wizardContainer.append(card);
+  }
+
+  // Pufferspeicher
+  wizardContainer.append(makeFieldRow(
+    "Pufferspeicher", "in Liter",
+    state.pufferspeicherLiter,
+    "z.B. 800",
+    val => { state.pufferspeicherLiter = sanitizeStr(val, 12); touchActive(); },
+    true  // mono
+  ));
+
+  // ── Warmwasserbereitung ──
+  const wwTitle = document.createElement("div");
+  wwTitle.style.fontFamily = "var(--font-display)";
+  wwTitle.style.fontSize = "16px";
+  wwTitle.style.fontWeight = "500";
+  wwTitle.style.color = "var(--text)";
+  wwTitle.style.marginTop = "24px";
+  wwTitle.style.marginBottom = "10px";
+  wwTitle.textContent = "Warmwasserbereitung";
+  wizardContainer.append(wwTitle);
+
+  // Toggles
+  wizardContainer.append(makePillToggleCard(
+    "Bereitungsart", "Mehrfachauswahl möglich",
+    [
+      { key: "zentral",          label: "über zentrale Heizungsanlage" },
+      { key: "dezentral",        label: "über dezentrale Anlage" },
+      { key: "brauchwasserWp",   label: "Brauchwasser-Wärmepumpe" }
+    ],
+    k => !!(state.warmwasser.typen && state.warmwasser.typen[k]),
+    k => {
+      state.warmwasser.typen[k] = !state.warmwasser.typen[k];
+      touchActive();
+      renderSection4(p);
+      renderWizardChrome();
+    }
+  ));
+
+  // WW-Speicher Liter
+  wizardContainer.append(makeFieldRow(
+    "WW-Speicher", "in Liter",
+    state.warmwasser.speicherLiter,
+    "z.B. 300",
+    val => { state.warmwasser.speicherLiter = sanitizeStr(val, 12); touchActive(); },
+    true
+  ));
+
+  // Notiz
+  wizardContainer.append(makeNotizFeld(state.notiz || "", val => {
+    state.notiz = sanitizeStr(val, MAX_PROJECT_TEXT_LEN);
+    touchActive();
+  }, "Notiz · Besonderheiten zur Anlagentechnik"));
+}
+
+// ─── Sektion 5: Verteilsystem ───────────────────────────────────────
+function renderSection5(p){
+  clearChildren(wizardContainer);
+  const state = ensureVerteilState(p);
+
+  wizardContainer.append(makePillToggleCard(
+    "Verteilsystem", "Mehrfachauswahl möglich",
+    VERTEIL_OPTIONEN,
+    k => !!state.aktiv[k],
+    k => {
+      state.aktiv[k] = !state.aktiv[k];
+      touchActive();
+      renderSection5(p);
+      renderWizardChrome();
+    }
+  ));
+
+  wizardContainer.append(makeNotizFeld(state.notiz || "", val => {
+    state.notiz = sanitizeStr(val, MAX_PROJECT_TEXT_LEN);
+    touchActive();
+  }, "Notiz · Besonderheiten"));
+}
+
+// ─── Sektion 6: Lüftung ─────────────────────────────────────────────
+function renderSection6(p){
+  clearChildren(wizardContainer);
+  const state = ensureLueftungState(p);
+
+  // Einzelwahl
+  wizardContainer.append(makePillToggleCard(
+    "Lüftungsart", "eine Wahl pro Gebäude",
+    LUEFTUNG_OPTIONEN,
+    k => state.typ === k,
+    k => {
+      state.typ = (state.typ === k) ? null : k;
+      touchActive();
+      renderSection6(p);
+      renderWizardChrome();
+    }
+  ));
+
+  wizardContainer.append(makeNotizFeld(state.notiz || "", val => {
+    state.notiz = sanitizeStr(val, MAX_PROJECT_TEXT_LEN);
+    touchActive();
+  }, "Notiz · Besonderheiten"));
+}
+
+// ─── Sektion 7: PV-Anlage ───────────────────────────────────────────
+function renderSection7(p){
+  clearChildren(wizardContainer);
+  const state = ensurePvState(p);
+
+  // Status
+  wizardContainer.append(makePillToggleCard(
+    "Status", "",
+    PV_STATUS,
+    k => state.status === k,
+    k => {
+      state.status = (state.status === k) ? null : k;
+      touchActive();
+      renderSection7(p);
+      renderWizardChrome();
+    }
+  ));
+
+  // Größe + Ausrichtung
+  wizardContainer.append(makeFieldRow(
+    "Größe", "z.B. kWp oder m²",
+    state.groesse,
+    "frei eintragen",
+    val => { state.groesse = sanitizeStr(val, MAX_PROJECT_TEXT_LEN); touchActive(); }
+  ));
+  wizardContainer.append(makeFieldRow(
+    "Ausrichtung", "z.B. Süd, Ost/West, 30° Neigung",
+    state.ausrichtung,
+    "frei eintragen",
+    val => { state.ausrichtung = sanitizeStr(val, MAX_PROJECT_TEXT_LEN); touchActive(); }
+  ));
+
+  // Produkt-Wahl
+  const prodTitle = document.createElement("div");
+  prodTitle.style.fontFamily = "var(--font-display)";
+  prodTitle.style.fontSize = "16px";
+  prodTitle.style.fontWeight = "500";
+  prodTitle.style.color = "var(--text)";
+  prodTitle.style.marginTop = "20px";
+  prodTitle.style.marginBottom = "4px";
+  prodTitle.textContent = "Standard-Produkte (Ersteingabe)";
+  wizardContainer.append(prodTitle);
+  const prodHint = document.createElement("div");
+  prodHint.style.fontSize = "11px";
+  prodHint.style.color = "var(--text-2)";
+  prodHint.style.marginBottom = "10px";
+  prodHint.textContent = "Vorschlag wenn kein Angebot vorliegt · Hersteller/Modul sind editierbar";
+  wizardContainer.append(prodHint);
+
+  for (const kind of ["aufdach", "indach"]){
+    const cardTitle = (kind === "aufdach") ? "Aufdach" : "Indach";
+    const cardState = state[kind];
+
+    const card = document.createElement("div");
+    card.className = "step-card";
+
+    // Aktivierungs-Häkchen
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "checkbox-row";
+    row.style.margin = "-16px";
+    row.style.padding = "14px 16px";
+    row.style.borderRadius = "12px";
+    if (cardState.aktiv) row.classList.add("checked");
+    const box = document.createElement("span");
+    box.className = "box";
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const poly = document.createElementNS(svgNS, "polyline");
+    poly.setAttribute("points", "5 12 10 17 19 7");
+    svg.append(poly);
+    box.append(svg);
+    const lab = document.createElement("span");
+    lab.className = "label";
+    lab.textContent = cardTitle;
+    row.append(box, lab);
+    row.addEventListener("click", () => {
+      cardState.aktiv = !cardState.aktiv;
+      // Beim ersten Aktivieren mit Defaults befüllen, wenn noch leer
+      if (cardState.aktiv){
+        if (!cardState.hersteller) cardState.hersteller = PV_DEFAULT_PRODUKTE[kind].hersteller;
+        if (!cardState.modul)      cardState.modul      = PV_DEFAULT_PRODUKTE[kind].modul;
+      }
+      touchActive();
+      renderSection7(p);
+      renderWizardChrome();
+    });
+    card.append(row);
+
+    if (cardState.aktiv){
+      const details = document.createElement("div");
+      details.style.marginTop = "12px";
+      details.style.paddingTop = "12px";
+      details.style.borderTop = "1px solid var(--border)";
+
+      for (const k of ["hersteller", "modul"]){
+        const wrap = document.createElement("div");
+        wrap.style.marginBottom = "8px";
+        const wLab = document.createElement("div");
+        wLab.style.fontSize = "11px";
+        wLab.style.color = "var(--text-2)";
+        wLab.style.marginBottom = "4px";
+        wLab.style.display = "flex";
+        wLab.style.alignItems = "center";
+        wLab.style.gap = "8px";
+        const labText = document.createElement("span");
+        labText.textContent = (k === "hersteller") ? "Hersteller" : "Modul";
+        wLab.append(labText);
+        // Reset-Button — immer im DOM, Sichtbarkeit per style
+        const reset = document.createElement("button");
+        reset.type = "button";
+        reset.className = "ab-reset";
+        reset.textContent = "auf Default";
+        const isModified = () => cardState[k] !== PV_DEFAULT_PRODUKTE[kind][k];
+        reset.style.display = isModified() ? "" : "none";
+        reset.addEventListener("click", () => {
+          cardState[k] = PV_DEFAULT_PRODUKTE[kind][k];
+          touchActive();
+          renderSection7(p);
+          renderWizardChrome();
+        });
+        wLab.append(reset);
+
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "wiz-input";
+        inp.maxLength = MAX_PROJECT_TEXT_LEN;
+        inp.value = cardState[k] || "";
+        inp.addEventListener("input", () => {
+          cardState[k] = sanitizeStr(inp.value, MAX_PROJECT_TEXT_LEN);
+          touchActive();
+          // Reset-Button-Sichtbarkeit live umschalten ohne Full-Render
+          reset.style.display = isModified() ? "" : "none";
+        });
+        wrap.append(wLab, inp);
+        details.append(wrap);
+      }
+
+      card.append(details);
+    }
+    wizardContainer.append(card);
+  }
+
+  wizardContainer.append(makeNotizFeld(state.notiz || "", val => {
+    state.notiz = sanitizeStr(val, MAX_PROJECT_TEXT_LEN);
+    touchActive();
+  }, "Notiz · Besonderheiten"));
+}
+
+// ─── Sektion 8: Thermische Hülle + Sommerlicher Wärmeschutz ─────────
+function renderSection8(p){
+  clearChildren(wizardContainer);
+  const state = ensureHuelleState(p);
+
+  // Umfang Hülle — Einzelwahl
+  wizardContainer.append(makePillToggleCard(
+    "Umfang der thermischen Hülle", "eine Wahl",
+    HUELLE_OPTIONEN,
+    k => state.umfang === k,
+    k => {
+      state.umfang = (state.umfang === k) ? null : k;
+      touchActive();
+      renderSection8(p);
+      renderWizardChrome();
+    }
+  ));
+
+  // Sommerlicher Wärmeschutz
+  const swTitle = document.createElement("div");
+  swTitle.style.fontFamily = "var(--font-display)";
+  swTitle.style.fontSize = "16px";
+  swTitle.style.fontWeight = "500";
+  swTitle.style.color = "var(--text)";
+  swTitle.style.marginTop = "20px";
+  swTitle.style.marginBottom = "10px";
+  swTitle.textContent = "Sommerlicher Wärmeschutz";
+  wizardContainer.append(swTitle);
+
+  wizardContainer.append(makeFieldRow(
+    "Kritische Räume", "z.B. Schlafzimmer DG Südseite",
+    state.kritischeRaeume,
+    "Räume mit erhöhter Aufheizgefahr eintragen",
+    val => { state.kritischeRaeume = sanitizeStr(val, MAX_PROJECT_TEXT_LEN); touchActive(); }
+  ));
+
+  // Notiz
+  wizardContainer.append(makeNotizFeld(state.notiz || "", val => {
+    state.notiz = sanitizeStr(val, MAX_PROJECT_TEXT_LEN);
+    touchActive();
+  }, "Notiz · Besonderheiten"));
+}
+
+// ─── Sanitisierung für Sektionen 4-8 (Import/Reload) ────────────────
+
+function sanitizeSection4(raw){
+  const out = { techniken: {}, pufferspeicherLiter: "", warmwasser: { typen: {}, speicherLiter: "" }, notiz: "" };
+  if (!raw || typeof raw !== "object") return out;
+  out.pufferspeicherLiter = sanitizeStr(raw.pufferspeicherLiter, 12);
+  out.notiz = sanitizeStr(raw.notiz, MAX_PROJECT_TEXT_LEN);
+  if (raw.techniken && typeof raw.techniken === "object"){
+    for (const t of HEIZUNG_TECHNIK){
+      const e = raw.techniken[t.key];
+      if (!e || typeof e !== "object") continue;
+      const clean = { aktiv: !!e.aktiv };
+      if (t.subTypes){
+        const validSub = new Set(t.subTypes.map(s => s.key));
+        if (validSub.has(e.subType)) clean.subType = e.subType;
+      }
+      if (t.extras){
+        clean.extras = {};
+        const validEx = new Set(t.extras.map(x => x.key));
+        if (e.extras && typeof e.extras === "object"){
+          for (const k in e.extras){
+            if (validEx.has(k)) clean.extras[k] = sanitizeStr(e.extras[k], 12);
+          }
+        }
+      }
+      clean.hersteller = sanitizeStr(e.hersteller, MAX_PROJECT_TEXT_LEN);
+      clean.modell     = sanitizeStr(e.modell,     MAX_PROJECT_TEXT_LEN);
+      if (t.raeumePresets) clean.raeume = sanitizeStr(e.raeume, MAX_PROJECT_TEXT_LEN);
+      out.techniken[t.key] = clean;
+    }
+  }
+  if (raw.warmwasser && typeof raw.warmwasser === "object"){
+    if (raw.warmwasser.typen && typeof raw.warmwasser.typen === "object"){
+      const valid = new Set(["zentral", "dezentral", "brauchwasserWp"]);
+      for (const k in raw.warmwasser.typen){
+        if (valid.has(k)) out.warmwasser.typen[k] = !!raw.warmwasser.typen[k];
+      }
+    }
+    out.warmwasser.speicherLiter = sanitizeStr(raw.warmwasser.speicherLiter, 12);
+  }
+  return out;
+}
+
+function sanitizeSection5(raw){
+  const out = { aktiv: {}, notiz: "" };
+  if (!raw || typeof raw !== "object") return out;
+  out.notiz = sanitizeStr(raw.notiz, MAX_PROJECT_TEXT_LEN);
+  if (raw.aktiv && typeof raw.aktiv === "object"){
+    const valid = new Set(VERTEIL_OPTIONEN.map(o => o.key));
+    for (const k in raw.aktiv){
+      if (valid.has(k)) out.aktiv[k] = !!raw.aktiv[k];
+    }
+  }
+  return out;
+}
+
+function sanitizeSection6(raw){
+  const out = { typ: null, notiz: "" };
+  if (!raw || typeof raw !== "object") return out;
+  out.notiz = sanitizeStr(raw.notiz, MAX_PROJECT_TEXT_LEN);
+  const valid = new Set(LUEFTUNG_OPTIONEN.map(o => o.key));
+  if (valid.has(raw.typ)) out.typ = raw.typ;
+  return out;
+}
+
+function sanitizeSection7(raw){
+  const out = {
+    status: null, groesse: "", ausrichtung: "",
+    aufdach: { aktiv: false, hersteller: "", modul: "" },
+    indach:  { aktiv: false, hersteller: "", modul: "" },
+    notiz: ""
+  };
+  if (!raw || typeof raw !== "object") return out;
+  out.notiz = sanitizeStr(raw.notiz, MAX_PROJECT_TEXT_LEN);
+  out.groesse = sanitizeStr(raw.groesse, MAX_PROJECT_TEXT_LEN);
+  out.ausrichtung = sanitizeStr(raw.ausrichtung, MAX_PROJECT_TEXT_LEN);
+  const validStatus = new Set(PV_STATUS.map(o => o.key));
+  if (validStatus.has(raw.status)) out.status = raw.status;
+  for (const k of ["aufdach", "indach"]){
+    const e = raw[k];
+    if (e && typeof e === "object"){
+      out[k].aktiv      = !!e.aktiv;
+      out[k].hersteller = sanitizeStr(e.hersteller, MAX_PROJECT_TEXT_LEN);
+      out[k].modul      = sanitizeStr(e.modul,      MAX_PROJECT_TEXT_LEN);
+    }
+  }
+  return out;
+}
+
+function sanitizeSection8(raw){
+  const out = { umfang: null, kritischeRaeume: "", notiz: "" };
+  if (!raw || typeof raw !== "object") return out;
+  out.notiz = sanitizeStr(raw.notiz, MAX_PROJECT_TEXT_LEN);
+  out.kritischeRaeume = sanitizeStr(raw.kritischeRaeume, MAX_PROJECT_TEXT_LEN);
+  const valid = new Set(HUELLE_OPTIONEN.map(o => o.key));
+  if (valid.has(raw.umfang)) out.umfang = raw.umfang;
   return out;
 }
