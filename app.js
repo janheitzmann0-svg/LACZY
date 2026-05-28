@@ -4,7 +4,7 @@
 // Wenn der Browser eine alte index.html mit einer neuen app.js kombiniert
 // (oder umgekehrt), erkennen wir das hier und erzwingen einen Reload mit
 // Cache-Umgehung. Verhindert "geht plötzlich nichts mehr"-Symptome.
-const LACZY_JS_VERSION = "laczy-v4.7.1";
+const LACZY_JS_VERSION = "laczy-v4.8.0";
 (function versionWatchdog(){
   try {
     // Notfall-Reset via URL-Parameter: ?reset=1 leert Cache und lädt neu
@@ -640,7 +640,7 @@ const toast = $("toast");
 // NAVIGATION — multi-screen shell (home + tool screens)
 // ════════════════════════════════════════════════════════════════════════════
 // Allowed screen names — keep tight; never derive from user input
-const VALID_SCREENS = new Set(["home", "search", "gutter", "sill", "statics", "projekt"]);
+const VALID_SCREENS = new Set(["home", "search", "gutter", "sill", "statics", "projekt", "slope"]);
 let currentScreen = "home";
 
 const backBtn = $("backBtn");
@@ -6889,18 +6889,46 @@ async function exportProjectAsPdf(projectId){
   const p = findProject(projectId);
   if (!p){ showToast("Projekt nicht gefunden", "warn"); return; }
 
-  // jsPDF + Fonts vorbereiten
-  if (typeof window.jspdf === "undefined" && typeof window.jsPDF === "undefined"){
-    showToast("PDF-Bibliothek nicht geladen — bitte neu laden", "warn");
-    return;
+  // jsPDF bereitstellen — mit Fallback-Nachladen via Script-Tag-Injection
+  let jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+  if (!jsPDF){
+    showToast("Lade PDF-Bibliothek …");
+    // Erst per HEAD prüfen ob die Datei überhaupt da ist
+    try {
+      const head = await fetch("libs/jspdf.umd.min.js", { method: "HEAD" });
+      if (!head.ok){
+        showToast("PDF-Lib fehlt — HTTP " + head.status + " bei libs/jspdf.umd.min.js", "warn");
+        return;
+      }
+    } catch(e){
+      showToast("PDF-Lib unerreichbar: " + (e && e.message ? e.message : ""), "warn");
+      return;
+    }
+    // Script-Tag dynamisch einfügen (CSP-konform, da 'self')
+    try {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = "libs/jspdf.umd.min.js";
+        s.onload  = () => resolve();
+        s.onerror = () => reject(new Error("Script-Load fehlgeschlagen"));
+        document.head.appendChild(s);
+      });
+    } catch(e){
+      showToast("PDF-Lib Script-Load-Fehler: " + e.message, "warn");
+      return;
+    }
+    jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    if (!jsPDF){
+      showToast("PDF-Lib geladen aber kein jsPDF-Export — Datei beschädigt?", "warn");
+      return;
+    }
   }
-  const jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
 
   showToast("PDF wird erzeugt …");
   let fonts;
   try { fonts = await loadPdfFonts(); }
   catch(e){
-    showToast("Schriftarten konnten nicht geladen werden", "warn");
+    showToast("Schriftarten konnten nicht geladen werden: " + (e && e.message ? e.message : ""), "warn");
     return;
   }
 
@@ -7150,3 +7178,806 @@ async function exportProjectAsPdf(projectId){
 // ─── Wizard-Button verdrahten ──────────────────────────────────────
 // Die PDF-Erzeugung wird direkt in der wizardNext()-Funktion ausgelöst
 // (siehe oben), sobald currentSection die letzte Sektion ist.
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// GEFÄLLEDÄMMUNG — Slope Calculator
+// ════════════════════════════════════════════════════════════════════════════
+// Geometrie über dem Baselevel (3 cm fix):
+//   L       = Länge in m
+//   Δh      = max_höhe - 3   (Keilhöhe in cm)
+//   gef_%   = Δh / (L · 100) · 100   = Δh / L
+//   gef_°   = atan(Δh / (L · 100)) · 180/π
+//   h_mid   = 3 + Δh/2
+//
+// Vier Felder hängen voneinander ab. Der zuletzt geänderte ist Treiber +
+// EIN weiteres bekanntes Feld liefert das System. Strategie:
+//   - Hält der State 4 unabhängige Slots: laenge, gefaelle (mit Einheit),
+//     hmax, hmid. Plus lastEdited-Reihenfolge (Stack der letzten Eingaben).
+//   - Beim Berechnen: nimm die ZWEI zuletzt editierten Werte als Anker.
+//     Damit immer ein konsistentes Paar zur Verfügung steht, das den
+//     restlichen Trapez-Geometrie eindeutig festlegt.
+
+const SLOPE_BASELEVEL_CM = 3;
+let slopeUnit = "%";   // "%" oder "grad"
+let slopeState = {
+  laenge:   null,   // m
+  hmax:     null,   // cm (über Baselevel: hmax >= 3)
+  hmid:     null,   // cm
+  gefaelle: null    // in der aktuell gewählten slopeUnit
+};
+let slopeLastEdited = [];  // Stack: zuletzt editierte Felder, neueste vorne
+let slopeRenderLock = false;  // verhindert Input-Event-Loop beim Schreiben
+
+// ─── Mathe-Helpers ──────────────────────────────────────────────────
+
+// dh = Δh in cm (= hmax - baselevel)
+function slopeFromLaengeUndDh(L, dh){
+  if (L === null || dh === null || L <= 0) return null;
+  const gef_p   = dh / L;                          // %
+  const gef_rad = Math.atan(dh / (L * 100));       // rad (L in m → cm)
+  const gef_deg = gef_rad * 180 / Math.PI;
+  return { gef_p, gef_deg };
+}
+
+function gefToDh(gef, unit, L){
+  // Gefälle zu Δh in cm (gegeben Länge in m)
+  if (gef === null || L === null || L <= 0) return null;
+  if (unit === "%"){
+    return gef * L;                                // dh_cm = gef_% · L_m
+  } else {  // grad
+    return Math.tan(gef * Math.PI / 180) * L * 100;
+  }
+}
+
+function dhToGef(dh, unit, L){
+  if (dh === null || L === null || L <= 0) return null;
+  if (unit === "%") return dh / L;
+  return Math.atan(dh / (L * 100)) * 180 / Math.PI;
+}
+
+// Komplette Lösung: gegeben slopeState (irgendwelche zwei unabhängige Werte gesetzt),
+// liefert {L, hmax, hmid, dh, gef_%, gef_°} oder null wenn nicht lösbar.
+function slopeSolve(){
+  // Die unabhängigen Größen sind: L, dh (also hmax wenn Baselevel bekannt),
+  // bzw. mittelbar hmid und gefaelle. Wir brauchen 2 davon als "Anker".
+  // Wir nehmen die 2 zuletzt editierten Felder, die einen Wert haben.
+
+  // Mappe lastEdited-Reihenfolge auf valide Werte
+  const have = {};
+  for (const f of ["laenge","hmax","hmid","gefaelle"]){
+    const v = slopeState[f];
+    if (typeof v === "number" && isFinite(v)) have[f] = v;
+  }
+  const orderedKnown = [];
+  for (const f of slopeLastEdited){
+    if (have[f] !== undefined && !orderedKnown.includes(f)) orderedKnown.push(f);
+  }
+  // Fallback: alle bekannten in Default-Reihenfolge anhängen
+  for (const f of ["laenge","gefaelle","hmax","hmid"]){
+    if (have[f] !== undefined && !orderedKnown.includes(f)) orderedKnown.push(f);
+  }
+  if (orderedKnown.length < 2) return null;
+
+  // Wir versuchen die zwei zuletzt editierten als Anker (a, b).
+  const a = orderedKnown[0];
+  const b = orderedKnown[1];
+  return slopeSolvePair(a, b);
+}
+
+function slopeSolvePair(a, b){
+  // gegebene Werte
+  const v = (k) => slopeState[k];
+  let L, dh;
+
+  // 6 Paar-Kombinationen, jede liefert (L, dh):
+  const pair = [a, b].sort().join("+");
+  switch (pair){
+    case "gefaelle+laenge": {
+      L = v("laenge");
+      dh = gefToDh(v("gefaelle"), slopeUnit, L);
+      break;
+    }
+    case "hmax+laenge": {
+      L = v("laenge");
+      dh = v("hmax") - SLOPE_BASELEVEL_CM;
+      break;
+    }
+    case "hmid+laenge": {
+      L = v("laenge");
+      // hmid = 3 + dh/2 → dh = 2*(hmid - 3)
+      dh = 2 * (v("hmid") - SLOPE_BASELEVEL_CM);
+      break;
+    }
+    case "gefaelle+hmax": {
+      dh = v("hmax") - SLOPE_BASELEVEL_CM;
+      // gef gegeben → L = dh / gef (für %) bzw. dh / (100·tan(gef°))·1
+      if (slopeUnit === "%"){
+        const g = v("gefaelle");
+        L = (g > 0) ? dh / g : null;
+      } else {
+        const t = Math.tan(v("gefaelle") * Math.PI / 180);
+        L = (t > 0) ? dh / (100 * t) : null;
+      }
+      break;
+    }
+    case "gefaelle+hmid": {
+      dh = 2 * (v("hmid") - SLOPE_BASELEVEL_CM);
+      if (slopeUnit === "%"){
+        const g = v("gefaelle");
+        L = (g > 0) ? dh / g : null;
+      } else {
+        const t = Math.tan(v("gefaelle") * Math.PI / 180);
+        L = (t > 0) ? dh / (100 * t) : null;
+      }
+      break;
+    }
+    case "hmax+hmid": {
+      dh = v("hmax") - SLOPE_BASELEVEL_CM;
+      const dhFromMid = 2 * (v("hmid") - SLOPE_BASELEVEL_CM);
+      // wenn beide bekannt, muss dh konsistent sein — sonst nicht lösbar
+      // Wir nehmen den Mittelwert als Fehler-Toleranz
+      if (Math.abs(dh - dhFromMid) > 0.5){
+        return { error: "max/mid inkonsistent" };
+      }
+      L = null;  // ohne Länge keine Gefällwerte berechenbar
+      break;
+    }
+    default:
+      return null;
+  }
+
+  if (dh !== null && dh < 0){
+    return { error: "max. Höhe muss ≥ 3 cm sein" };
+  }
+
+  const hmax = (dh !== null) ? dh + SLOPE_BASELEVEL_CM : null;
+  const hmid = (dh !== null) ? dh / 2 + SLOPE_BASELEVEL_CM : null;
+  const gef_p = (L !== null && dh !== null && L > 0) ? dh / L : null;
+  const gef_d = (L !== null && dh !== null && L > 0)
+    ? Math.atan(dh / (L * 100)) * 180 / Math.PI
+    : null;
+
+  return { L, dh, hmax, hmid, gef_p, gef_d };
+}
+
+// ─── Format-Helpers ─────────────────────────────────────────────────
+
+function slopeParseDE(str){
+  if (typeof str !== "string") return null;
+  const s = str.trim().replace(/\s/g, "").replace(",", ".");
+  if (!s) return null;
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+  const n = parseFloat(s);
+  if (!isFinite(n)) return null;
+  return n;
+}
+
+function slopeFmt(n, decimals){
+  if (n === null || n === undefined || !isFinite(n)) return "";
+  const d = (decimals === undefined) ? 2 : decimals;
+  return n.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+// ─── Zustand → DOM ──────────────────────────────────────────────────
+
+function slopeRecomputeAndRender(){
+  const sol = slopeSolve();
+  renderSlopeSketch(sol);
+  renderSlopeFields(sol);
+  updateSlopePdfBtn(sol);
+}
+
+function renderSlopeFields(sol){
+  slopeRenderLock = true;
+  try {
+    // Welches Feld ist "last edited" (visuelle Markierung)?
+    const last = slopeLastEdited[0] || null;
+    for (const f of ["laenge","gefaelle","hmax","hmid"]){
+      const fieldEl = document.querySelector('[data-slope-field="' + f + '"]');
+      if (!fieldEl) continue;
+      if (f === last) fieldEl.classList.add("last-edited");
+      else            fieldEl.classList.remove("last-edited");
+    }
+
+    if (!sol || sol.error){
+      // Nur leere/manuelle Werte anzeigen, keine Berechnung
+      writeIfEmpty("slopeLaenge",   slopeState.laenge,   2);
+      writeIfEmpty("slopeGefaelle", slopeState.gefaelle, slopeUnit === "%" ? 2 : 2);
+      writeIfEmpty("slopeHmax",     slopeState.hmax,     1);
+      writeIfEmpty("slopeHmid",     slopeState.hmid,     1);
+      return;
+    }
+
+    // Werte berechnen + nicht-letzte Felder überschreiben.
+    // Aber: das ZULETZT editierte Feld nicht überschreiben (sonst kämpft
+    // der Cursor mit den eigenen Eingaben).
+    const computed = {
+      laenge:   sol.L,
+      hmax:     sol.hmax,
+      hmid:     sol.hmid,
+      gefaelle: slopeUnit === "%" ? sol.gef_p : sol.gef_d
+    };
+    const decimals = {
+      laenge: 2, hmax: 1, hmid: 1, gefaelle: 2
+    };
+
+    for (const f of ["laenge","gefaelle","hmax","hmid"]){
+      const inputEl = $("slope" + capitalize(f === "gefaelle" ? "Gefaelle" : (f === "hmax" ? "Hmax" : (f === "hmid" ? "Hmid" : "Laenge"))));
+      if (!inputEl) continue;
+      // Aktives Feld (Fokus) und zuletzt editiertes nicht überschreiben
+      const isFocused = document.activeElement === inputEl;
+      const isLast    = (f === last);
+      if (isFocused || isLast){
+        // State-Wert in Anzeige spiegeln nur wenn Feld leer
+        if (!inputEl.value && slopeState[f] !== null){
+          inputEl.value = slopeFmt(slopeState[f], decimals[f]);
+        }
+        continue;
+      }
+      if (computed[f] !== null && computed[f] !== undefined){
+        inputEl.value = slopeFmt(computed[f], decimals[f]);
+        // State spiegeln (nur Anzeige, kein lastEdited-Update)
+        slopeState[f] = computed[f];
+      }
+    }
+  } finally {
+    slopeRenderLock = false;
+  }
+}
+
+function writeIfEmpty(inputId, val, decimals){
+  const el = $(inputId);
+  if (!el) return;
+  if (el.value && el.value.trim()) return;
+  if (val === null || val === undefined) return;
+  el.value = slopeFmt(val, decimals);
+}
+
+function capitalize(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+
+function updateSlopePdfBtn(sol){
+  const btn = $("slopePdfBtn");
+  if (!btn) return;
+  if (sol && !sol.error && sol.L !== null && sol.hmax !== null && sol.gef_p !== null){
+    btn.disabled = false;
+  } else {
+    btn.disabled = true;
+  }
+}
+
+// ─── Live-SVG-Skizze ────────────────────────────────────────────────
+
+function renderSlopeSketch(sol){
+  const g = $("slopeSketchInner");
+  if (!g) return;
+  clearChildren(g);
+
+  // SVG Koordinaten
+  const VBX = 360, VBY = 170;
+  const margin = { left: 30, right: 90, top: 24, bottom: 56 };
+  const baseY = VBY - margin.bottom;        // y-Linie für Grenze Baselevel/Boden = obere Kante Grunddämmung
+  const drawW = VBX - margin.left - margin.right;
+  const x0 = margin.left;
+  const x1 = x0 + drawW;
+
+  // Defaults für unausgefüllte Skizze
+  let dh_cm = (sol && sol.dh !== null) ? sol.dh : 8;     // optisch
+  if (dh_cm < 0) dh_cm = 0;
+  const base_cm = SLOPE_BASELEVEL_CM;
+  const hmax_cm = (sol && sol.hmax !== null) ? sol.hmax : (dh_cm + base_cm);
+
+  // Skalierung Höhe: Keil darf höchstens (baseY - margin.top - 20) hoch sein
+  const maxKeilHeightPx = baseY - margin.top - 20;
+  // ein cm = maxKeilHeightPx / max(hmax_cm, 5)
+  const refMax = Math.max(hmax_cm, 5);
+  const cm2px = maxKeilHeightPx / refMax;
+
+  const baseHeightPx = base_cm * cm2px;
+  const dhHeightPx   = dh_cm * cm2px;
+
+  // y-Koordinaten der Polygon-Punkte
+  const yBaseTop_low  = baseY - baseHeightPx;             // obere Kante Baselevel links (kleinste Höhe)
+  const yKeilTop_low  = yBaseTop_low;                     // links: Keilstart auf Baselevel-Oberkante
+  const yKeilTop_high = yBaseTop_low - dhHeightPx;        // rechts: Keilende
+
+  // Polygon des Trapez-Keils: links (untere Kante = baseY, obere Kante = yKeilTop_low),
+  // rechts (untere Kante = baseY, obere Kante = yKeilTop_high)
+  const svgNS = "http://www.w3.org/2000/svg";
+
+  // Grunddämmung gestrichelt (unter dem Trapez)
+  const gd = document.createElementNS(svgNS, "rect");
+  gd.setAttribute("x", x0);
+  gd.setAttribute("y", baseY + 2);
+  gd.setAttribute("width", drawW);
+  gd.setAttribute("height", 26);
+  gd.setAttribute("fill", "none");
+  gd.setAttribute("stroke", "#a39e8e");
+  gd.setAttribute("stroke-width", "0.6");
+  gd.setAttribute("stroke-dasharray", "3 2");
+  g.append(gd);
+
+  const gdLabel = document.createElementNS(svgNS, "text");
+  gdLabel.setAttribute("x", x0 + drawW / 2);
+  gdLabel.setAttribute("y", baseY + 18);
+  gdLabel.setAttribute("font-family", "var(--font-mono)");
+  gdLabel.setAttribute("font-size", "9");
+  gdLabel.setAttribute("fill", "#a39e8e");
+  gdLabel.setAttribute("text-anchor", "middle");
+  gdLabel.textContent = "Grunddämmung x (projektspezifisch)";
+  g.append(gdLabel);
+
+  // Trapez-Polygon (links Baselevel + 0, rechts Baselevel + Keil)
+  const poly = document.createElementNS(svgNS, "polygon");
+  poly.setAttribute("points", [
+    x0 + "," + baseY,
+    x1 + "," + baseY,
+    x1 + "," + yKeilTop_high,
+    x0 + "," + yKeilTop_low
+  ].join(" "));
+  poly.setAttribute("fill", "rgba(168,104,64,0.12)");
+  poly.setAttribute("stroke", "#a86840");
+  poly.setAttribute("stroke-width", "1.3");
+  poly.setAttribute("stroke-linejoin", "round");
+  g.append(poly);
+
+  // Baselevel-Linie hervorheben (3 cm Streifen unten im Trapez)
+  if (baseHeightPx >= 2){
+    const baseStripe = document.createElementNS(svgNS, "rect");
+    baseStripe.setAttribute("x", x0);
+    baseStripe.setAttribute("y", yBaseTop_low);
+    baseStripe.setAttribute("width", drawW);
+    baseStripe.setAttribute("height", baseHeightPx);
+    baseStripe.setAttribute("fill", "rgba(122,145,104,0.18)");
+    baseStripe.setAttribute("stroke", "none");
+    // Hinter das Polygon einsetzen → davor einfügen:
+    g.insertBefore(baseStripe, poly);
+  }
+
+  // Schraffur-Andeutung im Keil
+  const hatchCount = 5;
+  for (let i = 1; i <= hatchCount; i++){
+    const xPx = x0 + (drawW * i / (hatchCount + 1));
+    // Höhe an dieser Stelle nach Trapez-Formel
+    const t = (xPx - x0) / drawW;  // 0..1
+    const yTop = yKeilTop_low + (yKeilTop_high - yKeilTop_low) * t;
+    if (baseY - yTop < 4) continue;
+    const hatchLine = document.createElementNS(svgNS, "line");
+    hatchLine.setAttribute("x1", xPx - 5);
+    hatchLine.setAttribute("y1", baseY - 3);
+    hatchLine.setAttribute("x2", xPx + 5);
+    hatchLine.setAttribute("y2", yTop + 3);
+    hatchLine.setAttribute("stroke", "#a86840");
+    hatchLine.setAttribute("stroke-width", "0.4");
+    hatchLine.setAttribute("opacity", "0.5");
+    g.append(hatchLine);
+  }
+
+  // === Maßlinien ===
+  // max. Höhe (rechts vom Trapez)
+  const maxLineX = x1 + 16;
+  if (sol && sol.hmax !== null){
+    const lineMax = document.createElementNS(svgNS, "line");
+    lineMax.setAttribute("x1", maxLineX); lineMax.setAttribute("y1", yKeilTop_high);
+    lineMax.setAttribute("x2", maxLineX); lineMax.setAttribute("y2", baseY);
+    lineMax.setAttribute("stroke", "#a39e8e"); lineMax.setAttribute("stroke-width", "0.7");
+    g.append(lineMax);
+    // Endmarken
+    for (const ty of [yKeilTop_high, baseY]){
+      const t = document.createElementNS(svgNS, "line");
+      t.setAttribute("x1", maxLineX - 4); t.setAttribute("x2", maxLineX + 4);
+      t.setAttribute("y1", ty); t.setAttribute("y2", ty);
+      t.setAttribute("stroke", "#a39e8e"); t.setAttribute("stroke-width", "0.7");
+      g.append(t);
+    }
+    const tHmax = document.createElementNS(svgNS, "text");
+    tHmax.setAttribute("x", maxLineX + 8);
+    tHmax.setAttribute("y", (yKeilTop_high + baseY) / 2 + 3);
+    tHmax.setAttribute("font-family", "var(--font-mono)");
+    tHmax.setAttribute("font-size", "11");
+    tHmax.setAttribute("fill", "#6b7466");
+    tHmax.textContent = slopeFmt(sol.hmax, 1) + " cm";
+    g.append(tHmax);
+    const tHmaxSub = document.createElementNS(svgNS, "text");
+    tHmaxSub.setAttribute("x", maxLineX + 8);
+    tHmaxSub.setAttribute("y", (yKeilTop_high + baseY) / 2 + 14);
+    tHmaxSub.setAttribute("font-family", "var(--font-body)");
+    tHmaxSub.setAttribute("font-size", "9");
+    tHmaxSub.setAttribute("fill", "#a39e8e");
+    tHmaxSub.textContent = "max. Höhe";
+    g.append(tHmaxSub);
+  }
+
+  // Baselevel-Label (innerhalb des Baselevels-Streifens rechts)
+  if (baseHeightPx >= 4){
+    const tBL = document.createElementNS(svgNS, "text");
+    tBL.setAttribute("x", x1 - 6);
+    tBL.setAttribute("y", baseY - 2);
+    tBL.setAttribute("font-family", "var(--font-mono)");
+    tBL.setAttribute("font-size", "8");
+    tBL.setAttribute("fill", "#5d7a4d");
+    tBL.setAttribute("text-anchor", "end");
+    tBL.textContent = "3 cm Baselevel";
+    g.append(tBL);
+  }
+
+  // Längsmaß unten
+  const dimY = baseY + 38;
+  const dimLine = document.createElementNS(svgNS, "line");
+  dimLine.setAttribute("x1", x0); dimLine.setAttribute("y1", dimY);
+  dimLine.setAttribute("x2", x1); dimLine.setAttribute("y2", dimY);
+  dimLine.setAttribute("stroke", "#a39e8e"); dimLine.setAttribute("stroke-width", "0.7");
+  g.append(dimLine);
+  for (const dx of [x0, x1]){
+    const t = document.createElementNS(svgNS, "line");
+    t.setAttribute("x1", dx); t.setAttribute("x2", dx);
+    t.setAttribute("y1", dimY - 4); t.setAttribute("y2", dimY + 4);
+    t.setAttribute("stroke", "#a39e8e"); t.setAttribute("stroke-width", "0.7");
+    g.append(t);
+  }
+  const tL = document.createElementNS(svgNS, "text");
+  tL.setAttribute("x", (x0 + x1) / 2);
+  tL.setAttribute("y", dimY + 13);
+  tL.setAttribute("font-family", "var(--font-mono)");
+  tL.setAttribute("font-size", "11");
+  tL.setAttribute("fill", "#6b7466");
+  tL.setAttribute("text-anchor", "middle");
+  tL.textContent = (sol && sol.L !== null) ? "Länge " + slopeFmt(sol.L, 2) + " m" : "Länge —";
+  g.append(tL);
+
+  // Gefälle-Beschriftung am Keil
+  if (sol && sol.gef_p !== null){
+    const tG = document.createElementNS(svgNS, "text");
+    tG.setAttribute("x", (x0 + x1) / 2);
+    tG.setAttribute("y", yKeilTop_low - 6);
+    tG.setAttribute("font-family", "var(--font-body)");
+    tG.setAttribute("font-size", "10");
+    tG.setAttribute("fill", "#a86840");
+    tG.setAttribute("font-style", "italic");
+    tG.setAttribute("text-anchor", "middle");
+    tG.textContent = slopeFmt(sol.gef_p, 2) + " % · " + slopeFmt(sol.gef_d, 2) + "°";
+    g.append(tG);
+  }
+}
+
+// ─── Input-Handler ──────────────────────────────────────────────────
+
+function slopeBindFields(){
+  const map = {
+    slopeLaenge:   "laenge",
+    slopeGefaelle: "gefaelle",
+    slopeHmax:     "hmax",
+    slopeHmid:     "hmid"
+  };
+  for (const id in map){
+    const el = $(id);
+    if (!el) continue;
+    el.addEventListener("input", () => {
+      if (slopeRenderLock) return;
+      const field = map[id];
+      const n = slopeParseDE(el.value);
+      slopeState[field] = n;
+      // lastEdited-Stack updaten
+      slopeLastEdited = [field, ...slopeLastEdited.filter(x => x !== field)];
+      slopeRecomputeAndRender();
+    });
+    // Blur: formatieren falls Zahl
+    el.addEventListener("blur", () => {
+      const field = map[id];
+      const n = slopeState[field];
+      if (typeof n === "number" && isFinite(n)){
+        const dec = (field === "hmax" || field === "hmid") ? 1 : 2;
+        el.value = slopeFmt(n, dec);
+      }
+    });
+  }
+
+  // Unit-Toggle (% vs. °)
+  document.querySelectorAll("#slopeUnitToggle [data-slope-unit]").forEach(b => {
+    b.addEventListener("click", () => {
+      const newUnit = b.getAttribute("data-slope-unit");
+      if (newUnit === slopeUnit) return;
+      // State umrechnen: aktueller Wert in alter Einheit → neue Einheit
+      const oldGef = slopeState.gefaelle;
+      if (typeof oldGef === "number" && isFinite(oldGef)){
+        if (slopeUnit === "%" && newUnit === "grad"){
+          // gef_° = atan(gef_%/100) · 180/π
+          slopeState.gefaelle = Math.atan(oldGef / 100) * 180 / Math.PI;
+        } else if (slopeUnit === "grad" && newUnit === "%"){
+          slopeState.gefaelle = Math.tan(oldGef * Math.PI / 180) * 100;
+        }
+      }
+      slopeUnit = newUnit;
+      // Toggle-UI updaten
+      document.querySelectorAll("#slopeUnitToggle [data-slope-unit]").forEach(x => {
+        x.classList.toggle("active", x.getAttribute("data-slope-unit") === newUnit);
+      });
+      // Gefälle-Anzeige aktualisieren (das Feld neu schreiben)
+      const inp = $("slopeGefaelle");
+      if (inp && typeof slopeState.gefaelle === "number"){
+        slopeRenderLock = true;
+        inp.value = slopeFmt(slopeState.gefaelle, 2);
+        slopeRenderLock = false;
+      }
+      slopeRecomputeAndRender();
+    });
+  });
+
+  // PDF-Button
+  const pdfBtn = $("slopePdfBtn");
+  if (pdfBtn){
+    pdfBtn.addEventListener("click", () => {
+      Promise.resolve()
+        .then(() => exportSlopeAsPdf())
+        .catch(err => {
+          console.error("Slope-PDF-Fehler:", err);
+          showToast("PDF-Fehler: " + (err && err.message ? err.message : "Unbekannt"), "warn");
+        });
+    });
+  }
+
+  // Initiales Rendern (leere Skizze als Default)
+  slopeRecomputeAndRender();
+}
+
+// Home-Karte → Screen
+const slopeCard = document.querySelector('[data-tool="slope"]');
+if (slopeCard){
+  slopeCard.addEventListener("click", () => {
+    navigateTo("slope");
+    // Bei erstem Aufruf binden (idempotent)
+    if (!slopeCard.dataset.bound){
+      slopeBindFields();
+      slopeCard.dataset.bound = "1";
+    }
+  });
+}
+
+// ─── PDF-Ausgabe Gefälledämmung ─────────────────────────────────────
+
+async function exportSlopeAsPdf(){
+  // jsPDF + Fonts bereitstellen (gleicher Mechanismus wie Projektkartei-PDF)
+  let jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+  if (!jsPDF){
+    showToast("Lade PDF-Bibliothek …");
+    try {
+      const head = await fetch("libs/jspdf.umd.min.js", { method: "HEAD" });
+      if (!head.ok){
+        showToast("PDF-Lib fehlt — HTTP " + head.status, "warn");
+        return;
+      }
+    } catch(e){
+      showToast("PDF-Lib unerreichbar: " + (e && e.message ? e.message : ""), "warn");
+      return;
+    }
+    try {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = "libs/jspdf.umd.min.js";
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error("Script-Load fehlgeschlagen"));
+        document.head.appendChild(s);
+      });
+    } catch(e){
+      showToast("PDF-Lib Script-Load-Fehler: " + e.message, "warn");
+      return;
+    }
+    jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    if (!jsPDF){
+      showToast("PDF-Lib geladen aber kein jsPDF-Export", "warn");
+      return;
+    }
+  }
+
+  const sol = slopeSolve();
+  if (!sol || sol.error || sol.L === null || sol.hmax === null){
+    showToast("Bitte mindestens Länge + ein Gefälle/Höhe eintragen", "warn");
+    return;
+  }
+
+  showToast("PDF wird erzeugt …");
+  let fonts;
+  try { fonts = await loadPdfFonts(); }
+  catch(e){
+    showToast("Schriftarten-Fehler: " + (e && e.message ? e.message : ""), "warn");
+    return;
+  }
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  for (const path in fonts){
+    const f = fonts[path];
+    const fileName = path.split("/").pop();
+    doc.addFileToVFS(fileName, f.b64);
+    doc.addFont(fileName, f.name, f.style);
+  }
+
+  // BG + Header
+  doc.setFillColor(...PDF_COLORS.bg);
+  doc.rect(0, 0, PDF_PAGE.width, PDF_PAGE.height, "F");
+
+  doc.setFont("Fraunces", "bold"); doc.setFontSize(22);
+  doc.setTextColor(...PDF_COLORS.text);
+  doc.text("Laczy", PDF_PAGE.marginX, PDF_PAGE.marginTop + 2);
+  doc.setFont("DMSans", "normal"); doc.setFontSize(7);
+  doc.setTextColor(...PDF_COLORS.text2);
+  doc.text("Gefälledämmung · Berechnung", PDF_PAGE.marginX, PDF_PAGE.marginTop + 6);
+  const today = new Date().toLocaleDateString("de-DE", { day: "numeric", month: "long", year: "numeric" });
+  doc.text(today, PDF_PAGE.width - PDF_PAGE.marginX, PDF_PAGE.marginTop + 6, { align: "right" });
+
+  // Terra-Trennlinie
+  doc.setDrawColor(...PDF_COLORS.terra);
+  doc.setLineWidth(0.4);
+  doc.line(PDF_PAGE.marginX, PDF_PAGE.marginTop + 9,
+           PDF_PAGE.width - PDF_PAGE.marginX, PDF_PAGE.marginTop + 9);
+
+  let y = PDF_PAGE.marginTop + 18;
+  doc.setFont("Fraunces", "bold"); doc.setFontSize(20);
+  doc.setTextColor(...PDF_COLORS.text);
+  doc.text("Gefälledämmung", PDF_PAGE.marginX, y);
+  y += 6;
+  doc.setFont("DMSans", "normal"); doc.setFontSize(8);
+  doc.setTextColor(...PDF_COLORS.text2);
+  doc.text("Keilförmiger Aufbau über Baselevel 3 cm · Grunddämmung darunter projektspezifisch",
+           PDF_PAGE.marginX, y);
+  y += 12;
+
+  // Skizze ins PDF zeichnen (eigene Routine, da das App-SVG nicht direkt
+  // ins PDF passt). Verwendet die gleiche Logik wie renderSlopeSketch().
+  const sketchX = PDF_PAGE.marginX;
+  const sketchY = y;
+  const sketchW = PDF_PAGE.contentWidth;
+  const sketchH = 60;
+
+  drawSlopeSketchPdf(doc, sol, sketchX, sketchY, sketchW, sketchH);
+  y += sketchH + 14;
+
+  // Werte-Tabelle
+  doc.setFont("DMSans", "bold"); doc.setFontSize(7);
+  doc.setTextColor(...PDF_COLORS.terra);
+  doc.text("01", PDF_PAGE.marginX, y);
+  doc.setFont("Fraunces", "bold"); doc.setFontSize(12);
+  doc.setTextColor(...PDF_COLORS.text);
+  doc.text("Ergebnisse", PDF_PAGE.marginX + 9, y);
+  y += 2;
+  doc.setDrawColor(...PDF_COLORS.ruleSoft);
+  doc.setLineWidth(0.2);
+  doc.line(PDF_PAGE.marginX, y, PDF_PAGE.width - PDF_PAGE.marginX, y);
+  y += 6;
+
+  const rows = [
+    ["Länge",          slopeFmt(sol.L, 2)   + " m"],
+    ["max. Höhe",      slopeFmt(sol.hmax, 1) + " cm"],
+    ["mittlere Höhe",  slopeFmt(sol.hmid, 1) + " cm"],
+    ["Δh über Baselevel", slopeFmt(sol.dh, 1) + " cm"],
+    ["Gefälle %",      slopeFmt(sol.gef_p, 2) + " %"],
+    ["Gefälle °",      slopeFmt(sol.gef_d, 2) + "°"],
+    ["Baselevel",      "3 cm (fix)"]
+  ];
+  for (const [k, v] of rows){
+    doc.setFont("DMSans", "normal"); doc.setFontSize(9);
+    doc.setTextColor(...PDF_COLORS.text2);
+    doc.text(k, PDF_PAGE.marginX, y);
+    doc.setTextColor(...PDF_COLORS.text);
+    doc.text(v, PDF_PAGE.marginX + 60, y);
+    y += 5.5;
+  }
+
+  // Hinweis
+  y += 4;
+  doc.setFont("DMSans", "normal"); doc.setFontSize(8);
+  doc.setTextColor(...PDF_COLORS.text2);
+  const noteLines = doc.splitTextToSize(
+    "Hinweis: Der Dämmkeil läuft nie auf 0 cm aus — ein Baselevel von 3 cm bleibt über die gesamte Länge bestehen. Die Grunddämmung x unter dem Baselevel ist projektspezifisch und nicht Teil dieser Rechnung.",
+    PDF_PAGE.contentWidth
+  );
+  doc.text(noteLines, PDF_PAGE.marginX, y);
+  y += noteLines.length * 4 + 3;
+
+  // Footer
+  const bottom = PDF_PAGE.height - PDF_PAGE.marginBottom + 8;
+  doc.setDrawColor(...PDF_COLORS.ruleSoft);
+  doc.setLineWidth(0.2);
+  doc.line(PDF_PAGE.marginX, bottom - 3, PDF_PAGE.width - PDF_PAGE.marginX, bottom - 3);
+  doc.setFont("DMSans", "normal"); doc.setFontSize(6.5);
+  doc.setTextColor(...PDF_COLORS.text3);
+  doc.text("Gefälledämmung · LACZY", PDF_PAGE.marginX, bottom);
+  doc.text("Seite 1 von 1", PDF_PAGE.width - PDF_PAGE.marginX, bottom, { align: "right" });
+
+  const ts = new Date().toISOString().slice(0, 10);
+  doc.save("laczy-gefaelledaemmung-" + ts + ".pdf");
+  showToast("PDF erstellt", "sage");
+}
+
+// PDF-Skizze: zeichnet das Keil-Diagramm im PDF an Position (x,y) mit (w,h) in mm
+function drawSlopeSketchPdf(doc, sol, x, y, w, h){
+  // Gleiche Mathe wie für die SVG: dh in cm, hmax in cm, L in m
+  const dh = sol.dh;
+  const baseCm = SLOPE_BASELEVEL_CM;
+  const hmaxCm = sol.hmax;
+
+  // Inneres Rechteck (mit Platz für Maßangaben rechts und unten)
+  const innerX0 = x + 4;
+  const innerX1 = x + w - 30;  // 30mm für rechte Maßlinie
+  const innerY1 = y + h - 14;  // 14mm für untere Maßlinie
+  const innerW  = innerX1 - innerX0;
+  const innerH  = innerY1 - y - 4;
+
+  const refMax = Math.max(hmaxCm, 5);
+  const cm2mm = innerH / refMax;
+  const baseMm = baseCm * cm2mm;
+  const dhMm   = dh * cm2mm;
+
+  const yBaseTop = innerY1 - baseMm;
+  const yKeilTopLeft  = yBaseTop;
+  const yKeilTopRight = yBaseTop - dhMm;
+
+  // Baselevel-Streifen (sage)
+  doc.setFillColor(122, 145, 104);
+  doc.setDrawColor(122, 145, 104);
+  // hintergrund mit alpha-effekt: heller Sage
+  doc.setFillColor(207, 220, 196);
+  doc.rect(innerX0, yBaseTop, innerW, baseMm, "F");
+
+  // Keil-Polygon (terra-tint)
+  doc.setFillColor(238, 220, 207);
+  doc.setDrawColor(...PDF_COLORS.terra);
+  doc.setLineWidth(0.5);
+  // Polygon zeichnen via lines()
+  const lines = [
+    [innerW, 0],                                       // unten rechts
+    [0, -(dhMm + baseMm)],                              // hoch rechts
+    [-innerW, dhMm]                                     // hoch-links zur linken Oberkante
+  ];
+  doc.lines(lines, innerX0, innerY1, [1,1], "FD", true);
+
+  // Strichelnde Grunddämmung darunter
+  doc.setDrawColor(...PDF_COLORS.text3);
+  doc.setLineWidth(0.3);
+  doc.setLineDashPattern([1, 0.6], 0);
+  doc.rect(innerX0, innerY1 + 1, innerW, 5);
+  doc.setLineDashPattern([], 0);
+
+  doc.setFont("DMSans", "normal"); doc.setFontSize(6);
+  doc.setTextColor(...PDF_COLORS.text3);
+  doc.text("Grunddämmung x (projektspezifisch)",
+           innerX0 + innerW / 2, innerY1 + 4.5, { align: "center" });
+
+  // max. Höhe Maßlinie rechts
+  const dimX = innerX1 + 5;
+  doc.setDrawColor(...PDF_COLORS.text2);
+  doc.setLineWidth(0.3);
+  doc.line(dimX, yKeilTopRight, dimX, innerY1);
+  doc.line(dimX - 1.2, yKeilTopRight, dimX + 1.2, yKeilTopRight);
+  doc.line(dimX - 1.2, innerY1,        dimX + 1.2, innerY1);
+  doc.setFont("DMSans", "normal"); doc.setFontSize(8);
+  doc.setTextColor(...PDF_COLORS.text2);
+  doc.text(slopeFmt(hmaxCm, 1) + " cm", dimX + 3, (yKeilTopRight + innerY1) / 2 + 1.5);
+  doc.setFontSize(6);
+  doc.setTextColor(...PDF_COLORS.text3);
+  doc.text("max. Höhe", dimX + 3, (yKeilTopRight + innerY1) / 2 + 5.5);
+
+  // Baselevel-Label
+  if (baseMm >= 2.5){
+    doc.setFontSize(6);
+    doc.setTextColor(15, 86, 65);
+    doc.text("3 cm Baselevel", innerX1 - 1.5, innerY1 - 0.8, { align: "right" });
+  }
+
+  // Längsmaß unten
+  const dimY = innerY1 + 10;
+  doc.setDrawColor(...PDF_COLORS.text2);
+  doc.setLineWidth(0.3);
+  doc.line(innerX0, dimY, innerX1, dimY);
+  doc.line(innerX0, dimY - 1.2, innerX0, dimY + 1.2);
+  doc.line(innerX1, dimY - 1.2, innerX1, dimY + 1.2);
+  doc.setFont("DMSans", "normal"); doc.setFontSize(8);
+  doc.setTextColor(...PDF_COLORS.text2);
+  doc.text("Länge " + slopeFmt(sol.L, 2) + " m",
+           (innerX0 + innerX1) / 2, dimY + 4, { align: "center" });
+
+  // Gefälle-Beschriftung im Keil
+  doc.setFont("DMSans", "normal"); doc.setFontSize(7);
+  doc.setTextColor(...PDF_COLORS.terra);
+  doc.text(slopeFmt(sol.gef_p, 2) + " % · " + slopeFmt(sol.gef_d, 2) + "°",
+           (innerX0 + innerX1) / 2, yKeilTopLeft - 1.5, { align: "center" });
+}
